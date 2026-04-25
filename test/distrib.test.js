@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { substituteUrl, substituteVars, renderHelp, buildSkillZip, _resetCaches, publicUrlFor } from '../lib/distrib.js';
+import { substituteUrl, substituteVars, renderHelp, renderIndex, buildSkillZip, _resetCaches, publicUrlFor } from '../lib/distrib.js';
 
 describe('substituteUrl', () => {
   it('replaces every placeholder', () => {
@@ -76,6 +76,17 @@ describe('renderHelp', () => {
     const html = renderHelp('https://my.host');
     assert.ok(html.includes('https://my.host/mcp'));
     assert.ok(!html.includes('__PULLMD_URL__'));
+  });
+});
+
+describe('renderIndex', () => {
+  beforeEach(() => _resetCaches());
+
+  it('returns the templated index.html with no unresolved placeholders', () => {
+    const html = renderIndex('https://my.host');
+    assert.ok(!html.includes('__PULLMD_VERSION__'), 'version placeholder must be replaced');
+    assert.ok(!html.includes('__PULLMD_URL__'), 'URL placeholder must be replaced');
+    assert.ok(html.length > 1000, 'expected real html, not empty');
   });
 });
 
