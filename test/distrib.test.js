@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { substituteUrl, renderHelp, buildSkillZip, _resetCaches, publicUrlFor } from '../lib/distrib.js';
+import { substituteUrl, substituteVars, renderHelp, buildSkillZip, _resetCaches, publicUrlFor } from '../lib/distrib.js';
 
 describe('substituteUrl', () => {
   it('replaces every placeholder', () => {
@@ -15,6 +15,26 @@ describe('substituteUrl', () => {
 
   it('returns input unchanged when no placeholder present', () => {
     assert.equal(substituteUrl('plain text', 'https://x'), 'plain text');
+  });
+});
+
+describe('substituteVars', () => {
+  it('replaces both URL and VERSION placeholders', () => {
+    const out = substituteVars(
+      'PullMD __PULLMD_VERSION__ at __PULLMD_URL__/api',
+      'https://my.host',
+      '9.9.9'
+    );
+    assert.equal(out, 'PullMD 9.9.9 at https://my.host/api');
+  });
+
+  it('replaces every VERSION occurrence', () => {
+    const out = substituteVars('v__PULLMD_VERSION__ — __PULLMD_VERSION__', 'https://h', '1.2.3');
+    assert.equal(out, 'v1.2.3 — 1.2.3');
+  });
+
+  it('returns input unchanged when no placeholders present', () => {
+    assert.equal(substituteVars('plain', 'https://x', '1.0.0'), 'plain');
   });
 });
 
