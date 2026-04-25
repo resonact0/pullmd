@@ -1,0 +1,392 @@
+import express from 'express';
+import { extractPost, normalizeRedditUrl } from './lib/reddit.js';
+import { extractWeb } from './lib/web.js';
+import { createCache } from './lib/cache.js';
+import { qualityScore } from './lib/scoring.js';
+import { buildFrontmatter } from './lib/frontmatter.js';
+import { mcpHandler } from './lib/mcp.js';
+import { renderHelp, getSkillZip, publicUrlFor } from './lib/distrib.js';
+
+function stripMarkdown(md) {
+  return md
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/_(.+?)_/g, '$1')
+    .replace(/~~(.+?)~~/g, '$1')
+    .replace(/!\[.*?\]\((.+?)\)/g, '$1')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '$1 ($2)')
+    .replace(/^>\s?/gm, '')
+    .replace(/^[-*+]\s+/gm, '- ')
+    .replace(/^---+$/gm, '---')
+    .trim();
+}
+
+function isRedditUrl(url) {
+  try {
+    normalizeRedditUrl(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function detectClient(ua, clientMode) {
+  // Explicit client-mode header from the frontend trumps UA sniffing
+  if (clientMode === 'pwa') return 'pwa';
+  if (!ua) return 'api';
+  const lower = ua.toLowerCase();
+  if (lower.includes('claude') || lower.includes('anthropic')) return 'claude';
+  if (lower.includes('curl') || lower.includes('wget') || lower.includes('python-requests') || lower.includes('httpie') || lower.includes('node-fetch') || lower.includes('axios')) return 'api';
+  if (lower.includes('mozilla') || lower.includes('chrome') || lower.includes('safari') || lower.includes('firefox') || lower.includes('edge')) return 'browser';
+  return 'api';
+}
+
+export function createApp(overrides = {}) {
+  const app = express();
+  const extract = overrides.extractPost || extractPost;
+  const extractWebFn = overrides.extractWeb || extractWeb;
+  const cache = overrides.cache || null;
+
+  // Templated help page + skill zip (PUBLIC_URL substitution).
+  // Must come BEFORE express.static so they win over the raw files in /public.
+  app.get(['/help', '/help.html'], (req, res) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(renderHelp(publicUrlFor(req)));
+  });
+
+  app.get('/web-reader.zip', async (req, res, next) => {
+    try {
+      const buf = await getSkillZip(publicUrlFor(req));
+      res.set('Content-Type', 'application/zip');
+      res.set('Content-Disposition', 'attachment; filename="web-reader.zip"');
+      res.set('Content-Length', String(buf.length));
+      res.send(buf);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.use(express.static('public', { extensions: ['html'] }));
+
+  // MCP endpoint (stateless Streamable-HTTP transport).
+  // Each request gets a fresh MCP server + transport bound to the same deps.
+  const mcp = mcpHandler({
+    extract,
+    extractWeb: extractWebFn,
+    cache,
+    qualityScore,
+    buildFrontmatter,
+    isRedditUrl,
+  });
+  app.post('/mcp', express.json({ limit: '1mb' }), mcp);
+  app.get('/mcp', mcp);
+  app.delete('/mcp', mcp);
+
+  app.get('/share', (req, res) => {
+    let link = req.query.link || req.query.url || '';
+    if (!link && req.query.text) {
+      const urlMatch = req.query.text.match(/https?:\/\/\S+/);
+      if (urlMatch) link = urlMatch[0];
+    }
+    res.redirect(302, `/#url=${encodeURIComponent(link)}`);
+  });
+
+  // Refresh a stale share-cache entry by re-extracting from its source URL.
+  // Best-effort: infers comments/lang from the cached markdown; falls back
+  // to the existing markdown on extraction failure (e.g. dead source).
+  async function refreshShareEntry(entry, client) {
+    const md = entry.markdown || '';
+    const hadComments = md.includes('\n## Kommentare') || md.includes('\n## Comments');
+    const inferredLang = md.includes('\n## Comments') ? 'en' : 'de';
+    if (isRedditUrl(entry.url)) {
+      const baseMd = await extract(entry.url, {
+        comments: hadComments,
+        commentDepth: 3,
+        commentLimit: 15,
+        lang: inferredLang,
+      });
+      const titleMatch = baseMd.match(/^#\s+(.+)$/m);
+      cache.put({
+        url: entry.url,
+        title: titleMatch?.[1] || entry.title || 'Reddit Post',
+        markdown: baseMd,
+        source: 'reddit',
+        client,
+      });
+      return baseMd;
+    }
+    const result = await extractWebFn(entry.url, { comments: false });
+    cache.put({
+      url: entry.url,
+      title: result.title,
+      markdown: result.markdown,
+      source: result.source,
+      client,
+    });
+    return result.markdown;
+  }
+
+  // Share endpoint: return cached markdown by share ID, refreshing if stale.
+  app.get('/s/:id', async (req, res) => {
+    if (!cache) {
+      return res.status(404).json({ error: 'Cache not available' });
+    }
+
+    const entry = cache.getByShareId(req.params.id);
+    if (!entry) {
+      return res.status(404).json({ error: 'Share link not found or expired' });
+    }
+
+    let markdown = entry.markdown;
+    const ageMs = Date.now() - new Date(entry.created_at + 'Z').getTime();
+    const STALE_MS = 60 * 60 * 1000;
+    if (ageMs > STALE_MS) {
+      const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode']);
+      try {
+        markdown = await refreshShareEntry(entry, client);
+      } catch (err) {
+        // Source is unreachable / failed — serve the stale snapshot.
+        console.warn('Share-link refresh failed for', entry.url, '—', err.message);
+      }
+    }
+
+    const format = req.query.format;
+    if (format === 'text') {
+      res.set('Content-Type', 'text/plain; charset=utf-8');
+      return res.send(stripMarkdown(markdown));
+    }
+    res.set('Content-Type', 'text/markdown; charset=utf-8');
+    return res.send(markdown);
+  });
+
+  app.get('/api', async (req, res) => {
+    const { url, comments, comment_depth, comment_limit, format, nocache, frontmatter, lang } = req.query;
+    const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
+    const reqLang = lang === 'en' ? 'en' : 'de';
+
+    if (!url) {
+      return res.status(400).json({ error: 'Missing required parameter: url' });
+    }
+
+    const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode']);
+    const useCache = cache && nocache !== 'true' && nocache !== '1';
+
+    const wantComments = comments !== 'false' && comments !== '0';
+    const t0 = Date.now();
+
+    if (useCache) {
+      const cached = cache.get(url);
+      if (cached) {
+        const redditCached = isRedditUrl(url);
+        const hasComments = cached.markdown.includes('\n## Kommentare') || cached.markdown.includes('\n## Comments');
+        if (!redditCached || !wantComments || hasComments) {
+          const baseMd = cached.markdown;
+          const cachedQuality = qualityScore(baseMd);
+          const titleMatchCached = baseMd.match(/^#\s+(.+)$/m);
+          const fm = wantFrontmatter
+            ? buildFrontmatter({
+                title: titleMatchCached?.[1] || cached.title,
+                sourceUrl: url,
+                quality: cachedQuality,
+              }, { source: cached.source, shareId: cached.share_id })
+            : '';
+          const md = fm + baseMd;
+          res.set('X-Source', cached.source);
+          res.set('X-Quality', String(cachedQuality));
+          if (cached.share_id) res.set('X-Share-Id', cached.share_id);
+          if (cache) cache.logExtraction({
+            url, source: cached.source, quality: cachedQuality, markdownLen: md.length,
+            extractorReason: null, durationMs: Date.now() - t0, client, cached: true,
+          });
+          if (format === 'json') {
+            return res.json({
+              markdown: md,
+              metadata: null,
+              source: cached.source,
+              shareId: cached.share_id || null,
+            });
+          }
+          if (format === 'text') {
+            res.set('Content-Type', 'text/plain; charset=utf-8');
+            return res.send(stripMarkdown(md));
+          }
+          res.set('Content-Type', 'text/markdown; charset=utf-8');
+          return res.send(md);
+        }
+      }
+    }
+
+    if (isRedditUrl(url)) {
+      try {
+        const baseMd = await extract(url, {
+          comments: wantComments,
+          commentDepth: comment_depth ? parseInt(comment_depth, 10) : 3,
+          commentLimit: comment_limit ? parseInt(comment_limit, 10) : 15,
+          lang: reqLang,
+        });
+
+        let shareId = null;
+        const titleMatch = baseMd.match(/^#\s+(.+)$/m);
+        if (cache) {
+          shareId = cache.put({ url, title: titleMatch?.[1] || 'Reddit Post', markdown: baseMd, source: 'reddit', client });
+        }
+
+        const quality = qualityScore(baseMd);
+        const fm = wantFrontmatter
+          ? buildFrontmatter({ title: titleMatch?.[1] || null, sourceUrl: url, quality }, { source: 'reddit', shareId })
+          : '';
+        const markdown = fm + baseMd;
+
+        res.set('X-Source', 'reddit');
+        res.set('X-Quality', String(quality));
+        if (shareId) res.set('X-Share-Id', shareId);
+        if (cache) cache.logExtraction({
+          url, source: 'reddit', quality, markdownLen: baseMd.length,
+          extractorReason: null, durationMs: Date.now() - t0, client, cached: false,
+        });
+        if (format === 'json') {
+          return res.json({
+            markdown,
+            metadata: {
+              title: titleMatch?.[1] || null,
+              description: null, canonical: null, author: null,
+              publishedTime: null, modifiedTime: null,
+              ogTitle: null, ogDescription: null, ogImage: null,
+              ogSiteName: null, ogType: null,
+              twitterCard: null, twitterTitle: null, twitterDescription: null, twitterImage: null,
+              language: null, sourceUrl: url, statusCode: 200,
+              quality,
+            },
+            source: 'reddit',
+            shareId: shareId || null,
+          });
+        }
+        if (format === 'text') {
+          res.set('Content-Type', 'text/plain; charset=utf-8');
+          return res.send(stripMarkdown(markdown));
+        }
+        res.set('Content-Type', 'text/markdown; charset=utf-8');
+        return res.send(markdown);
+      } catch (err) {
+        if (err.message.includes('not found') || err.message.includes('Not found')) {
+          return res.status(404).json({ error: 'Post not found' });
+        }
+        if (err.message.includes('Rate limited') || err.message.includes('429')) {
+          return res.status(502).json({ error: 'Reddit rate limit. Try again later.' });
+        }
+        if (err.message.includes('403') || err.message.includes('Blocked')) {
+          return res.status(502).json({ error: 'Reddit blocked the request.' });
+        }
+        console.error('API error:', err);
+        return res.status(500).json({ error: 'Internal server error' });
+      }
+    }
+
+    try {
+      const result = await extractWebFn(url, {
+        comments: false,
+      });
+
+      let shareId = null;
+      if (cache) {
+        shareId = cache.put({ url, title: result.title, markdown: result.markdown, source: result.source, client });
+      }
+
+      const fm = wantFrontmatter
+        ? buildFrontmatter(result.metadata || {}, { source: result.source, shareId })
+        : '';
+      const finalMd = fm + result.markdown;
+
+      res.set('X-Source', result.source);
+      if (result.metadata?.quality !== undefined) {
+        res.set('X-Quality', String(result.metadata.quality));
+      }
+      if (shareId) res.set('X-Share-Id', shareId);
+      if (cache) cache.logExtraction({
+        url, source: result.source,
+        quality: result.metadata?.quality,
+        markdownLen: result.markdown.length,
+        extractorReason: result.metadata?.extractorReason || null,
+        durationMs: Date.now() - t0,
+        client, cached: false,
+      });
+      if (format === 'json') {
+        return res.json({
+          markdown: finalMd,
+          metadata: result.metadata || null,
+          source: result.source,
+          shareId: shareId || null,
+        });
+      }
+      if (format === 'text') {
+        res.set('Content-Type', 'text/plain; charset=utf-8');
+        return res.send(stripMarkdown(finalMd));
+      }
+      res.set('Content-Type', 'text/markdown; charset=utf-8');
+      return res.send(finalMd);
+    } catch (err) {
+      console.error('Web extraction error:', err);
+      return res.status(502).json({ error: `Failed to extract page: ${err.message}` });
+    }
+  });
+
+  app.get('/api/stats', (req, res) => {
+    if (!cache) return res.json({ total: 0, window: '-7 days' });
+    const window = req.query.window || '-7 days';
+    res.json(cache.extractionStats(window));
+  });
+
+  app.get('/api/storage', (req, res) => {
+    if (!cache) return res.json({ total: 0, retentionDays: 90 });
+    res.json(cache.storageStats());
+  });
+
+  app.get('/api/history', (req, res) => {
+    if (!cache) {
+      return res.json([]);
+    }
+    const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+    res.json(cache.history(limit));
+  });
+
+  app.get('/api/archive', (req, res) => {
+    if (!cache) {
+      return res.json({ items: [], total: 0 });
+    }
+    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+    const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    res.json(cache.historyPage(limit, offset));
+  });
+
+  app.delete('/api/cache/:id', (req, res) => {
+    if (!cache) {
+      return res.status(404).json({ error: 'Cache not available' });
+    }
+    const id = parseInt(req.params.id, 10);
+    if (!id) return res.status(400).json({ error: 'Invalid ID' });
+    cache.delete(id);
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/cache', (req, res) => {
+    if (!cache) {
+      return res.status(404).json({ error: 'Cache not available' });
+    }
+    cache.deleteAll();
+    res.json({ ok: true });
+  });
+
+  return app;
+}
+
+const isDirectRun = process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'));
+if (isDirectRun || process.argv[1]?.endsWith('server.js')) {
+  const port = process.env.PORT || 3000;
+  const cache = createCache(process.env.CACHE_DB || './data/cache.db');
+  const app = createApp({ cache });
+  app.listen(port, () => {
+    console.log(`PullMD running on http://localhost:${port}`);
+  });
+}

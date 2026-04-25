@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>PullMD · Hilfe / Help</title>
+  <link rel="icon" href="favicon.ico" sizes="48x48">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="theme-color" content="#0e1016">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root,
+    [data-theme="dark"] {
+      --bg:#0e1016; --bg-elev:#14171f; --bg-input:#11141b; --bg-result:#0a0c12;
+      --border:#1f2330; --border-strong:#2a3040;
+      --fg:#e7e9ee; --fg-muted:#8b91a1; --fg-dim:#5a6072; --fg-faint:#353a48;
+      --accent:#ff5722; --accent-hover:#ff7043; --accent-fg:#fff;
+      --accent-soft:rgba(255,87,34,0.12);
+      --link:#6cc4ff; --good:#6bff9c; --good-bg:rgba(107,255,156,0.08);
+      --bad:#ff7a7a; --bad-bg:rgba(255,122,122,0.08);
+      --radius:10px; --radius-lg:14px;
+      --shadow:0 1px 0 rgba(255,255,255,0.02) inset, 0 8px 24px rgba(0,0,0,0.35);
+      --gridline:rgba(255,255,255,0.025);
+    }
+    [data-theme="paper"] {
+      --bg:#f6f3ee; --bg-elev:#fff; --bg-input:#fff; --bg-result:#fbf9f4;
+      --border:#e6e0d4; --border-strong:#cdc5b3;
+      --fg:#1c1a17; --fg-muted:#6b6557; --fg-dim:#918a7a; --fg-faint:#cdc5b3;
+      --accent:#d84315; --accent-hover:#bf360c; --accent-fg:#fff;
+      --accent-soft:rgba(216,67,21,0.10);
+      --link:#1976d2; --good:#1b5e20; --good-bg:rgba(27,94,32,0.08);
+      --bad:#c62828; --bad-bg:rgba(198,40,40,0.06);
+      --shadow:0 1px 2px rgba(60,40,20,0.04), 0 8px 24px rgba(60,40,20,0.06);
+      --gridline:rgba(60,40,20,0.03);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+    body {
+      font-family:'Geist',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+      background:var(--bg); color:var(--fg);
+      min-height:100vh; min-height:100dvh; line-height:1.6;
+      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+      padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+      background-image:
+        linear-gradient(var(--gridline) 1px, transparent 1px),
+        linear-gradient(90deg, var(--gridline) 1px, transparent 1px);
+      background-size:32px 32px;
+    }
+
+    .container { max-width:780px; margin:0 auto; padding:3rem 1.25rem 6rem; }
+
+    /* Header */
+    .brand {
+      display:flex; align-items:center; justify-content:space-between;
+      margin-bottom:2.5rem;
+    }
+    .brand-mark { display:inline-flex; align-items:center; gap:0.625rem; text-decoration:none; color:var(--fg); }
+    .brand-mark img { height:1.75rem; width:1.75rem; border-radius:6px; display:block; }
+    .brand-mark .wordmark { font-size:1.375rem; font-weight:700; letter-spacing:-0.02em; }
+    .brand-mark .wordmark .accent { color:var(--accent); }
+    .brand-mark .sub { font-size:0.6875rem; color:var(--fg-dim); letter-spacing:0.06em; text-transform:uppercase; font-family:'JetBrains Mono',ui-monospace,monospace; margin-left:0.625rem; padding-left:0.625rem; border-left:1px solid var(--border-strong); }
+    .brand-actions { display:inline-flex; gap:0.375rem; align-items:center; }
+    .icon-btn {
+      width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center;
+      background:transparent; border:1px solid var(--border-strong); border-radius:6px;
+      color:var(--fg-muted); cursor:pointer; padding:0; text-decoration:none;
+      transition:color 0.15s, border-color 0.15s;
+    }
+    .icon-btn:hover { color:var(--accent); border-color:var(--accent); }
+    .icon-btn svg { display:block; }
+    [data-theme="dark"]  .theme-toggle .icon-sun  { display:block; }
+    [data-theme="dark"]  .theme-toggle .icon-moon { display:none; }
+    [data-theme="paper"] .theme-toggle .icon-sun  { display:none; }
+    [data-theme="paper"] .theme-toggle .icon-moon { display:block; }
+
+    .lang-btn {
+      height:28px; padding:0 0.5rem; display:inline-flex; align-items:center; justify-content:center;
+      background:transparent; border:1px solid var(--border-strong); border-radius:6px;
+      color:var(--fg-muted); font-family:'JetBrains Mono',ui-monospace,monospace;
+      font-size:0.6875rem; font-weight:600; letter-spacing:0.06em; cursor:pointer;
+      transition:color 0.15s, border-color 0.15s;
+    }
+    .lang-btn:hover { color:var(--accent); border-color:var(--accent); }
+
+    /* Hero */
+    h1 { font-size:clamp(1.875rem,4vw,2.5rem); font-weight:700; letter-spacing:-0.025em; line-height:1.15; margin-bottom:0.5rem; }
+    .lede { color:var(--fg-muted); font-size:1rem; margin-bottom:3rem; max-width:60ch; line-height:1.65; }
+
+    /* TOC */
+    .toc {
+      background:var(--bg-elev); border:1px solid var(--border); border-radius:var(--radius-lg);
+      padding:1rem 1.125rem; margin-bottom:4rem;
+      font-family:'JetBrains Mono',ui-monospace,monospace; font-size:0.8125rem;
+    }
+    .toc-label { font-size:0.625rem; font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--fg-dim); margin-bottom:0.5rem; }
+    .toc ul { list-style:none; display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:0.25rem 1rem; }
+    .toc a { color:var(--link); text-decoration:none; }
+    .toc a:hover { text-decoration:underline; }
+    .toc a::before { content:'·  '; color:var(--fg-faint); }
+
+    /* Sections */
+    section { margin-bottom:4.5rem; scroll-margin-top:1rem; }
+    section + section { padding-top:1rem; }
+    h2 {
+      font-size:1.5rem; font-weight:700; letter-spacing:-0.02em;
+      margin-bottom:1.5rem; padding-bottom:0.625rem;
+      border-bottom:1px solid var(--border);
+      display:flex; align-items:baseline; gap:0.75rem;
+    }
+    h2 .kicker {
+      font-family:'JetBrains Mono',ui-monospace,monospace;
+      font-size:0.6875rem; font-weight:600; color:var(--fg-faint);
+      letter-spacing:0.08em; text-transform:uppercase;
+    }
+    h3 {
+      font-size:1rem; font-weight:600; margin:2.25rem 0 0.875rem;
+      color:var(--fg); letter-spacing:-0.005em;
+    }
+    p { margin-bottom:1.125rem; color:var(--fg); max-width:65ch; line-height:1.65; }
+    p.muted { color:var(--fg-muted); margin-top:1rem; }
+
+    code {
+      font-family:'JetBrains Mono',ui-monospace,monospace;
+      font-size:0.85em; padding:0.075rem 0.375rem; border-radius:4px;
+      background:var(--accent-soft); color:var(--accent);
+    }
+    a { color:var(--link); text-decoration:underline; text-underline-offset:2px; }
+    a:hover { text-decoration-color:var(--accent); }
+
+    ul.doc-list, ol.doc-list { padding-left:1.25rem; margin-bottom:1.5rem; }
+    ul.doc-list li, ol.doc-list li { margin-bottom:0.5rem; max-width:62ch; line-height:1.6; }
+
+    /* Code/copy block */
+    .copybox {
+      position:relative; background:var(--bg-result);
+      border:1px solid var(--border); border-radius:var(--radius);
+      margin:0.5rem 0 1.75rem;
+    }
+    .copybox-header {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:0.5rem 0.75rem; border-bottom:1px solid var(--border);
+    }
+    .copybox-label {
+      font-family:'JetBrains Mono',ui-monospace,monospace; font-size:0.625rem;
+      font-weight:600; letter-spacing:0.08em; text-transform:uppercase; color:var(--fg-dim);
+    }
+    .copybox-btn {
+      padding:0.25rem 0.625rem; font-size:0.6875rem; font-weight:600; font-family:inherit;
+      color:var(--fg); background:var(--bg-elev); border:1px solid var(--border-strong);
+      border-radius:6px; cursor:pointer; display:inline-flex; align-items:center; gap:0.3rem;
+      transition:color 0.15s, border-color 0.15s, background 0.15s;
+    }
+    .copybox-btn:hover { color:var(--accent); border-color:var(--accent); }
+    .copybox-btn.copied { color:var(--good); border-color:var(--good); background:var(--good-bg); }
+    .copybox pre {
+      padding:0.875rem 1rem; overflow-x:auto;
+      font-family:'JetBrains Mono',ui-monospace,monospace; font-size:0.8125rem;
+      line-height:1.55; color:var(--fg); white-space:pre-wrap; word-break:break-word;
+      tab-size:2;
+    }
+
+    /* Table */
+    .table {
+      width:100%; border-collapse:separate; border-spacing:0;
+      border:1px solid var(--border); border-radius:var(--radius);
+      font-size:0.875rem; overflow:hidden; margin:0.5rem 0 1.75rem;
+    }
+    .table th, .table td { padding:0.625rem 0.875rem; text-align:left; border-bottom:1px solid var(--border); vertical-align:top; }
+    .table tr:last-child th, .table tr:last-child td { border-bottom:none; }
+    .table th {
+      background:var(--bg-elev); color:var(--fg-dim);
+      font-family:'JetBrains Mono',ui-monospace,monospace; font-size:0.6875rem;
+      font-weight:600; letter-spacing:0.06em; text-transform:uppercase;
+    }
+    .table td code { font-size:0.8125rem; }
+
+    /* Callout */
+    .callout {
+      padding:0.875rem 1rem; margin-bottom:1rem;
+      border:1px solid var(--accent); border-radius:var(--radius);
+      background:var(--accent-soft); color:var(--fg);
+    }
+    .callout strong { color:var(--accent); }
+
+    .download-btn {
+      display:inline-flex; align-items:center; gap:0.5rem;
+      padding:0.5rem 0.875rem; margin-top:0.25rem;
+      background:var(--accent); color:var(--accent-fg); border:none; border-radius:var(--radius);
+      font-weight:600; font-size:0.875rem; text-decoration:none;
+      transition:background 0.15s, transform 0.1s;
+    }
+    .download-btn:hover { background:var(--accent-hover); }
+    .download-btn:active { transform:scale(0.97); }
+
+    /* i18n visibility */
+    body[data-lang="de"] [lang="en"] { display:none; }
+    body[data-lang="en"] [lang="de"] { display:none; }
+
+    /* Footer */
+    .foot {
+      margin-top:3rem; padding-top:1.25rem; border-top:1px solid var(--border);
+      font-family:'JetBrains Mono',ui-monospace,monospace; font-size:0.75rem; color:var(--fg-dim);
+      display:flex; justify-content:space-between; flex-wrap:wrap; gap:0.5rem;
+    }
+    .foot a { color:var(--link); }
+
+    @media (max-width:480px) {
+      .container { padding:1.5rem 1rem 4rem; }
+      .toc ul { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body data-theme="dark" data-lang="de">
+  <script>
+    // Pre-paint: theme + lang from localStorage / system
+    (function () {
+      try {
+        var t = localStorage.getItem('pullmd-theme') || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'dark');
+        document.body.setAttribute('data-theme', t);
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', t === 'paper' ? '#f6f3ee' : '#0e1016');
+        var l = localStorage.getItem('pullmd-lang');
+        if (l !== 'de' && l !== 'en') l = (navigator.language || 'en').toLowerCase().indexOf('de') === 0 ? 'de' : 'en';
+        document.body.setAttribute('data-lang', l);
+        document.documentElement.lang = l;
+      } catch (e) {}
+    })();
+  </script>
+
+  <div class="container">
+    <header class="brand">
+      <a href="/" class="brand-mark" title="zurück zu PullMD / back to PullMD">
+        <img src="icon-192.png" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'M',style:'display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;border-radius:6px;background:var(--accent);color:var(--accent-fg);font-weight:700;font-size:0.95rem;'}))">
+        <span class="wordmark"><span class="accent">Pull</span>MD</span>
+        <span class="sub" lang="de">Hilfe</span>
+        <span class="sub" lang="en">Help</span>
+      </a>
+      <span class="brand-actions">
+        <button id="theme-btn" class="icon-btn theme-toggle" type="button" title="Theme">
+          <svg class="icon-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path></svg>
+          <svg class="icon-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+        </button>
+        <button id="lang-btn" class="lang-btn" type="button" title="Language"><span id="lang-label">EN</span></button>
+        <a href="/" class="icon-btn" title="zurück / back">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+        </a>
+      </span>
+    </header>
+
+    <h1 lang="de">PullMD Hilfe</h1>
+    <h1 lang="en">PullMD Help</h1>
+
+    <p class="lede" lang="de">Diese Seite erklärt, was PullMD macht, wie der Cache funktioniert und wie du den Service in Claude Code oder anderen KI-Agenten einrichtest.</p>
+    <p class="lede" lang="en">This page explains what PullMD does, how the cache works, and how to wire it into Claude Code or any other AI agent.</p>
+
+    <nav class="toc">
+      <div class="toc-label">
+        <span lang="de">Inhalt</span><span lang="en">Contents</span>
+      </div>
+      <ul lang="de">
+        <li><a href="#what">Was macht PullMD?</a></li>
+        <li><a href="#cache">Cache & TTL</a></li>
+        <li><a href="#agent">In KI-Agenten einrichten</a></li>
+        <li><a href="#api">API-Parameter</a></li>
+        <li><a href="#share">Share-Links</a></li>
+        <li><a href="#frontmatter">Frontmatter</a></li>
+        <li><a href="#clients">Client-Erkennung</a></li>
+      </ul>
+      <ul lang="en">
+        <li><a href="#what">What PullMD does</a></li>
+        <li><a href="#cache">Cache & TTL</a></li>
+        <li><a href="#agent">Set up in AI agents</a></li>
+        <li><a href="#api">API parameters</a></li>
+        <li><a href="#share">Share links</a></li>
+        <li><a href="#frontmatter">Frontmatter</a></li>
+        <li><a href="#clients">Client detection</a></li>
+      </ul>
+    </nav>
+
+    <!-- ===================================================== -->
+    <section id="what">
+      <h2><span lang="de">Was macht PullMD?</span><span lang="en">What PullMD does</span><span class="kicker">/api</span></h2>
+      <p lang="de">PullMD ruft eine beliebige URL ab und liefert sie als sauberes Markdown zurück. Drei Extraktions-Pfade werden je nach Quelle gewählt:</p>
+      <p lang="en">PullMD fetches any URL and returns it as clean Markdown. It picks one of three extraction paths depending on the source:</p>
+      <ul class="doc-list" lang="de">
+        <li><strong>Reddit</strong> — eigener Pipeline für Posts, Kommentare, Subreddit-Listings (mit Tiefe und Limit konfigurierbar).</li>
+        <li><strong>Cloudflare-Markdown</strong> — wenn die Quelle <code>Accept: text/markdown</code> nativ unterstützt, wird das direkt durchgereicht (sauberster Output).</li>
+        <li><strong>Readability + Turndown</strong> — Fallback für alles andere: Mozilla Readability extrahiert den Hauptinhalt, Turndown wandelt nach Markdown.</li>
+      </ul>
+      <ul class="doc-list" lang="en">
+        <li><strong>Reddit</strong> — dedicated pipeline for posts, comments, subreddit listings (configurable depth and limit).</li>
+        <li><strong>Cloudflare-Markdown</strong> — when the source supports <code>Accept: text/markdown</code> natively, that's passed through directly (cleanest output).</li>
+        <li><strong>Readability + Turndown</strong> — fallback for everything else: Mozilla Readability pulls the main content, Turndown converts to Markdown.</li>
+      </ul>
+      <p lang="de">Welcher Pfad genommen wurde, sieht man im Response-Header <code>X-Source</code> und in der History neben jedem Eintrag.</p>
+      <p lang="en">Which path was used shows up in the response header <code>X-Source</code> and next to each entry in the history.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="cache">
+      <h2><span lang="de">Cache & TTL</span><span lang="en">Cache & TTL</span><span class="kicker">SQLite</span></h2>
+      <p lang="de">Jeder Pull wird in einer SQLite-Datenbank gespeichert. Zwei Zeitspannen sind wichtig:</p>
+      <p lang="en">Every pull is stored in a SQLite database. Two timeouts matter:</p>
+      <table class="table">
+        <thead>
+          <tr>
+            <th lang="de">Was</th><th lang="de">Wert</th><th lang="de">Wann zurücksetzen?</th>
+            <th lang="en">What</th><th lang="en">Value</th><th lang="en">When does it reset?</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td lang="de"><strong>Re-Fetch</strong> von der Quelle</td>
+            <td lang="de"><code>1 Stunde</code></td>
+            <td lang="de">Bei jedem erfolgreichen Pull derselben URL — egal ob über <code>/api?url=…</code> oder über <code>/s/:id</code>.</td>
+            <td lang="en"><strong>Re-fetch</strong> from source</td>
+            <td lang="en"><code>1 hour</code></td>
+            <td lang="en">On every successful pull of the same URL — regardless of whether it came through <code>/api?url=…</code> or <code>/s/:id</code>.</td>
+          </tr>
+          <tr>
+            <td lang="de"><strong>Share-Link-Lebensdauer</strong></td>
+            <td lang="de"><code>90 Tage</code></td>
+            <td lang="de">Bei jedem Re-Fetch (=> Cache schreibt). Auch <code>/s/:id</code>-Aufrufe verlängern, da sie nach 1 h einen Re-Fetch auslösen.</td>
+            <td lang="en"><strong>Share link lifetime</strong></td>
+            <td lang="en"><code>90 days</code></td>
+            <td lang="en">On every re-fetch (= cache write). <code>/s/:id</code> requests extend it too, since they trigger a re-fetch after 1h.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h3 lang="de">So funktioniert <code>/s/:id</code></h3>
+      <h3 lang="en">How <code>/s/:id</code> behaves</h3>
+      <ul class="doc-list" lang="de">
+        <li>Cache &lt; 1 h alt → liefert die gespeicherte Version sofort.</li>
+        <li>Cache ≥ 1 h alt → ruft die Quelle frisch ab, schreibt zurück, liefert das neue Markdown.</li>
+        <li>Quelle nicht erreichbar (404, Netzwerk, …) → liefert den letzten gespeicherten Stand als Snapshot. Keine Stille-Failure-Lücke.</li>
+        <li>Cache &gt; 90 Tage ohne Re-Fetch → Eintrag wird beim nächsten Schreibvorgang gelöscht; Share-Link gibt 404 zurück.</li>
+      </ul>
+      <ul class="doc-list" lang="en">
+        <li>Cache &lt; 1 h old → returns the stored version immediately.</li>
+        <li>Cache ≥ 1 h old → re-fetches the source, writes back, serves the new markdown.</li>
+        <li>Source unreachable (404, network, …) → falls back to the last stored snapshot. No silent failure.</li>
+        <li>Cache &gt; 90 days without a re-fetch → entry is pruned on next write; share link returns 404.</li>
+      </ul>
+
+      <h3 lang="de">Tipp: Subreddit als Live-Feed</h3>
+      <h3 lang="en">Tip: subreddit as a live feed</h3>
+      <p lang="de">Pull einmal einen Subreddit-Listing-Link, merke dir die Share-ID — und ruf danach nur noch <code>/s/:id</code> auf. Nach jeder Stunde löst der nächste Aufruf einen frischen Fetch aus, die Share-ID bleibt stabil, der Inhalt aktualisiert sich. Praktisch für KI-Agenten, die einen festen Endpoint mit regelmäßig aktuellem Inhalt brauchen.</p>
+      <p lang="en">Pull a subreddit-listing URL once, remember the share ID — and from then on only call <code>/s/:id</code>. After each hour the next request triggers a fresh fetch, the share ID stays stable, and the content updates. Handy for AI agents that need a fixed endpoint with regularly refreshed content.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="agent">
+      <h2><span lang="de">In KI-Agenten einrichten</span><span lang="en">Set up in AI agents</span><span class="kicker">setup</span></h2>
+
+      <h3 lang="de">Option 1 — Universal: Prompt einfügen</h3>
+      <h3 lang="en">Option 1 — Universal: paste a prompt</h3>
+      <p lang="de">Funktioniert in <em>jedem</em> Chat-Agent (ChatGPT, Claude.ai, Gemini, Perplexity, …). Kopiere den Block, füge ihn als System- oder Custom-Instruction ein:</p>
+      <p lang="en">Works in <em>any</em> chat-style agent (ChatGPT, Claude.ai, Gemini, Perplexity, …). Copy the block, paste it as a system or custom instruction:</p>
+
+      <div class="copybox">
+        <div class="copybox-header">
+          <span class="copybox-label">prompt · drop-in</span>
+          <button class="copybox-btn" data-copy="agent-prompt">
+            <span lang="de">Kopieren</span><span lang="en">Copy</span>
+          </button>
+        </div>
+        <pre id="agent-prompt">When you need to read a web page, fetch via PullMD instead of raw HTML:
+
+  GET __PULLMD_URL__/api?url=&lt;URL&gt;
+
+Returns clean Markdown (text/markdown). Optional query params:
+
+  comments=false        skip Reddit comments
+  comment_depth=N       comment nesting depth (default 3)
+  frontmatter=true      prepend YAML metadata block
+  format=text           strip Markdown, return plain text
+  nocache=true          bypass the 1h cache and refetch
+  lang=de|en            language for the comments section header
+
+Response headers worth checking:
+  X-Source       reddit | cloudflare | readability
+  X-Quality      0.0-1.0 extraction confidence
+  X-Share-Id     8-hex permalink, openable as /s/&lt;id&gt;
+
+Reddit URLs are auto-detected (incl. redd.it short links and /s/ shares).
+Use this whenever you would otherwise fetch raw HTML — the markdown is
+much cleaner and saves significant context window space.</pre>
+      </div>
+
+      <h3 lang="de">Option 2 — Claude Code Skill</h3>
+      <h3 lang="en">Option 2 — Claude Code skill</h3>
+      <p lang="de">Für Claude Code gibt es eine fertige Skill, die <code>WebFetch</code> automatisch durch PullMD ersetzt (mit Fallback). Lade sie als Zip und entpacke nach <code>~/.claude/skills/</code>:</p>
+      <p lang="en">For Claude Code there's a ready-made skill that automatically routes <code>WebFetch</code> through PullMD (with fallback). Download the zip and unpack into <code>~/.claude/skills/</code>:</p>
+
+      <p><a class="download-btn" href="/web-reader.zip" download>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        <span lang="de">web-reader.zip herunterladen</span><span lang="en">Download web-reader.zip</span>
+      </a></p>
+
+      <div class="copybox">
+        <div class="copybox-header">
+          <span class="copybox-label">install · shell</span>
+          <button class="copybox-btn" data-copy="install-shell">
+            <span lang="de">Kopieren</span><span lang="en">Copy</span>
+          </button>
+        </div>
+        <pre id="install-shell">curl -O __PULLMD_URL__/web-reader.zip
+mkdir -p ~/.claude/skills
+unzip web-reader.zip -d ~/.claude/skills/
+# Restart Claude Code; the skill activates on web-reading requests.</pre>
+      </div>
+
+      <h3 lang="de">Option 3 — MCP-Server (remote)</h3>
+      <h3 lang="en">Option 3 — MCP server (remote)</h3>
+      <p lang="de">PullMD läuft als <strong>remote MCP-Server</strong> unter <code>__PULLMD_URL__/mcp</code> (Streamable-HTTP-Transport, stateless). Drei Tools: <code>read_url</code>, <code>get_share</code>, <code>list_recent</code>. Server-seitige Updates erreichen automatisch alle Clients — keine lokale Installation nötig.</p>
+      <p lang="en">PullMD runs as a <strong>remote MCP server</strong> at <code>__PULLMD_URL__/mcp</code> (Streamable-HTTP transport, stateless). Three tools: <code>read_url</code>, <code>get_share</code>, <code>list_recent</code>. Server-side updates reach every client automatically — no local install needed.</p>
+
+      <p class="muted" lang="de"><strong>Claude Code</strong> — Prompt einfügen, Claude installiert es selbst:</p>
+      <p class="muted" lang="en"><strong>Claude Code</strong> — paste this prompt and Claude will install it for you:</p>
+      <div class="copybox">
+        <div class="copybox-header">
+          <span class="copybox-label">prompt · claude code</span>
+          <button class="copybox-btn" data-copy="mcp-prompt">
+            <span lang="de">Kopieren</span><span lang="en">Copy</span>
+          </button>
+        </div>
+        <pre id="mcp-prompt-de" lang="de">Installiere den PullMD MCP-Server in Claude Code (User-Scope):
+- Name: pullmd
+- Transport: http
+- URL: __PULLMD_URL__/mcp
+
+Nutze: claude mcp add --transport http pullmd __PULLMD_URL__/mcp
+Danach: claude mcp list zur Verifikation.</pre>
+        <pre id="mcp-prompt-en" lang="en">Install the PullMD MCP server in Claude Code (user scope):
+- Name: pullmd
+- Transport: http
+- URL: __PULLMD_URL__/mcp
+
+Run: claude mcp add --transport http pullmd __PULLMD_URL__/mcp
+Then: claude mcp list to verify.</pre>
+      </div>
+
+      <p class="muted" lang="de"><strong>Claude Code</strong> — direkt im Terminal:</p>
+      <p class="muted" lang="en"><strong>Claude Code</strong> — directly in the terminal:</p>
+      <div class="copybox">
+        <div class="copybox-header">
+          <span class="copybox-label">claude code · cli</span>
+          <button class="copybox-btn" data-copy="mcp-cc">
+            <span lang="de">Kopieren</span><span lang="en">Copy</span>
+          </button>
+        </div>
+        <pre id="mcp-cc">claude mcp add --transport http pullmd __PULLMD_URL__/mcp</pre>
+      </div>
+
+      <p class="muted" lang="de"><strong>Claude Desktop</strong> / <strong>Cursor</strong> / andere — JSON-Konfig:</p>
+      <p class="muted" lang="en"><strong>Claude Desktop</strong> / <strong>Cursor</strong> / others — JSON config:</p>
+      <div class="copybox">
+        <div class="copybox-header">
+          <span class="copybox-label">mcp config snippet</span>
+          <button class="copybox-btn" data-copy="mcp-json">
+            <span lang="de">Kopieren</span><span lang="en">Copy</span>
+          </button>
+        </div>
+        <pre id="mcp-json">{
+  "mcpServers": {
+    "pullmd": {
+      "type": "http",
+      "url": "__PULLMD_URL__/mcp"
+    }
+  }
+}</pre>
+      </div>
+
+      <p class="muted" lang="de">Sobald registriert, erscheinen die drei Tools nativ im Agent — keine Prompt-Anweisungen nötig, das LLM erkennt sie über ihre Schema-Beschreibungen.</p>
+      <p class="muted" lang="en">Once registered, the three tools surface natively in the agent — no prompt instructions needed, the LLM picks them up via their schema descriptions.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="api">
+      <h2><span lang="de">API-Parameter</span><span lang="en">API parameters</span><span class="kicker">GET /api</span></h2>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Param</th>
+            <th lang="de">Default</th><th lang="de">Beschreibung</th>
+            <th lang="en">Default</th><th lang="en">Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>url</code></td><td>—</td>
+            <td lang="de">Pflicht. Beliebige öffentliche URL.</td>
+            <td lang="en">Required. Any public URL.</td>
+          </tr>
+          <tr><td><code>comments</code></td><td><code>true</code></td>
+            <td lang="de">Reddit-Kommentare einschließen. <code>false</code> liefert nur den Post.</td>
+            <td lang="en">Include Reddit comments. <code>false</code> returns just the post.</td>
+          </tr>
+          <tr><td><code>comment_depth</code></td><td><code>3</code></td>
+            <td lang="de">Maximale Verschachtelungstiefe (1–10).</td>
+            <td lang="en">Max nesting depth (1–10).</td>
+          </tr>
+          <tr><td><code>comment_limit</code></td><td><code>15</code></td>
+            <td lang="de">Maximale Anzahl Top-Level-Kommentare.</td>
+            <td lang="en">Max number of top-level comments.</td>
+          </tr>
+          <tr><td><code>frontmatter</code></td><td><code>false</code></td>
+            <td lang="de">YAML-Frontmatter mit Metadaten voranstellen.</td>
+            <td lang="en">Prepend YAML frontmatter with metadata.</td>
+          </tr>
+          <tr><td><code>format</code></td><td><code>md</code></td>
+            <td lang="de"><code>text</code> = Markdown-Formatierung entfernen, Plaintext zurückgeben. <code>json</code> = strukturiert mit Metadaten.</td>
+            <td lang="en"><code>text</code> = strip Markdown, return plain text. <code>json</code> = structured with metadata.</td>
+          </tr>
+          <tr><td><code>nocache</code></td><td><code>false</code></td>
+            <td lang="de">1-h-Cache umgehen, immer frisch holen.</td>
+            <td lang="en">Bypass the 1-hour cache, always refetch.</td>
+          </tr>
+          <tr><td><code>lang</code></td><td><code>de</code></td>
+            <td lang="de">Sprache des Kommentar-Headers (<code>de</code> oder <code>en</code>).</td>
+            <td lang="en">Language for the comments header (<code>de</code> or <code>en</code>).</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="share">
+      <h2><span lang="de">Share-Links</span><span lang="en">Share links</span><span class="kicker">/s/:id</span></h2>
+      <p lang="de">Jeder Pull bekommt eine 8-stellige Hex-ID als Share-Link, der den exakten Markdown-Stand zurückliefert. Die ID erscheint im Response-Header <code>X-Share-Id</code> und in der Share-Bar unter dem URL-Feld.</p>
+      <p lang="en">Every pull gets an 8-hex share ID returning the exact markdown snapshot. The ID surfaces in the response header <code>X-Share-Id</code> and in the share bar below the URL field.</p>
+      <ul class="doc-list" lang="de">
+        <li><code>GET /s/:id</code> liefert den Markdown (Content-Type <code>text/markdown</code>).</li>
+        <li>Wenn der Eintrag &lt; 1 h alt ist: Sofortantwort aus dem Cache. Sonst: frischer Fetch der Quelle und schreibt zurück.</li>
+        <li>Die ID bleibt stabil — Re-Fetch ändert nur Inhalt + <code>created_at</code>, nicht die <code>share_id</code>.</li>
+        <li>Damit ist der Share-Link auch ein <em>Live-Endpoint</em>: ein KI-Agent kann ihn als festen URL benutzen und kriegt automatisch frisches Markdown.</li>
+        <li>Maximales Alter im Cache: 90 Tage ohne Re-Fetch. Da aber jeder <code>/s/:id</code>-Aufruf nach 1 h einen Re-Fetch auslöst, verlängert sich die Lebensdauer mit jeder Nutzung.</li>
+        <li>Ist die Quelle nicht erreichbar, wird der letzte Snapshot zurückgegeben — der Link bleibt also auch bei toten Seiten nutzbar.</li>
+      </ul>
+      <ul class="doc-list" lang="en">
+        <li><code>GET /s/:id</code> returns the markdown (Content-Type <code>text/markdown</code>).</li>
+        <li>If the row is &lt; 1h old: instant cache response. Otherwise: fresh fetch from the source, written back to cache.</li>
+        <li>The ID is stable — refresh only updates content + <code>created_at</code>, not the <code>share_id</code>.</li>
+        <li>This makes the share link a <em>live endpoint</em>: an AI agent can pin it as a fixed URL and automatically get refreshed markdown.</li>
+        <li>Max age in cache: 90 days without a refresh. But since every <code>/s/:id</code> hit older than 1h triggers a refresh, lifetime extends with usage.</li>
+        <li>If the source is unreachable, the last snapshot is returned — so the link keeps working even if the source dies.</li>
+      </ul>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="frontmatter">
+      <h2><span lang="de">Frontmatter</span><span lang="en">Frontmatter</span><span class="kicker">YAML</span></h2>
+      <p lang="de">Mit <code>?frontmatter=true</code> wird vor dem Inhalt ein YAML-Block mit Metadaten eingefügt. Felder mit leerem Wert werden weggelassen:</p>
+      <p lang="en">With <code>?frontmatter=true</code> a YAML metadata block is prepended to the content. Empty fields are omitted:</p>
+      <div class="copybox">
+        <div class="copybox-header">
+          <span class="copybox-label">example</span>
+          <button class="copybox-btn" data-copy="fm-example">
+            <span lang="de">Kopieren</span><span lang="en">Copy</span>
+          </button>
+        </div>
+        <pre id="fm-example">---
+title: "Why I migrated my side-project from Postgres to SQLite"
+url: https://news.ycombinator.com/item?id=42424242
+source: readability
+fetched: 2026-04-25T13:53:00Z
+quality: 0.85
+author: kentonv
+published: 2026-04-24T18:42:00Z
+description: "After two years on managed Postgres..."
+language: en
+share_id: a3f9c2
+---</pre>
+      </div>
+      <p class="muted" lang="de">Felder: <code>title, url, source, fetched, quality, author, published, modified, description, language, image, site, extractor_reason, share_id</code>.</p>
+      <p class="muted" lang="en">Fields: <code>title, url, source, fetched, quality, author, published, modified, description, language, image, site, extractor_reason, share_id</code>.</p>
+    </section>
+
+    <!-- ===================================================== -->
+    <section id="clients">
+      <h2><span lang="de">Client-Erkennung</span><span lang="en">Client detection</span><span class="kicker">history</span></h2>
+      <p lang="de">Jeder Eintrag in der History kriegt ein Client-Badge — daran sieht man, woher der Pull kam:</p>
+      <p lang="en">Every history entry gets a client badge so you can see where the pull originated:</p>
+      <ul class="doc-list" lang="de">
+        <li><strong>Browser</strong> — normale Web-UI im Browser-Tab.</li>
+        <li><strong>PWA</strong> — installierte Progressive Web App (Standalone-Mode, Android/iOS/Desktop).</li>
+        <li><strong>Claude</strong> — User-Agent enthält „Claude" (z. B. via Skill).</li>
+        <li><strong>API</strong> — alles andere (curl, Skript, MCP-Wrapper, …).</li>
+      </ul>
+      <ul class="doc-list" lang="en">
+        <li><strong>Browser</strong> — regular web UI in a browser tab.</li>
+        <li><strong>PWA</strong> — installed Progressive Web App (standalone mode, Android/iOS/desktop).</li>
+        <li><strong>Claude</strong> — User-Agent contains "Claude" (e.g. via the skill).</li>
+        <li><strong>API</strong> — anything else (curl, scripts, MCP wrappers, …).</li>
+      </ul>
+    </section>
+
+    <div class="foot">
+      <span lang="de">PullMD · self-hosted · <a href="/">zurück zur App</a></span>
+      <span lang="en">PullMD · self-hosted · <a href="/">back to app</a></span>
+      <span><a href="__PULLMD_URL__/api?url=https%3A%2F%2Fpullmd.hive.dammert.net%2Fhelp" target="_blank" rel="noopener">/help → markdown</a></span>
+    </div>
+  </div>
+
+  <script>
+    // ---- Theme toggle ----
+    document.getElementById('theme-btn').addEventListener('click', function () {
+      var next = document.body.getAttribute('data-theme') === 'paper' ? 'dark' : 'paper';
+      document.body.setAttribute('data-theme', next);
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', next === 'paper' ? '#f6f3ee' : '#0e1016');
+      try { localStorage.setItem('pullmd-theme', next); } catch (e) {}
+    });
+
+    // ---- Lang toggle ----
+    function syncLangLabel() {
+      var cur = document.body.getAttribute('data-lang');
+      document.getElementById('lang-label').textContent = cur === 'de' ? 'EN' : 'DE';
+    }
+    syncLangLabel();
+    document.getElementById('lang-btn').addEventListener('click', function () {
+      var next = document.body.getAttribute('data-lang') === 'de' ? 'en' : 'de';
+      document.body.setAttribute('data-lang', next);
+      document.documentElement.lang = next;
+      try { localStorage.setItem('pullmd-lang', next); } catch (e) {}
+      syncLangLabel();
+    });
+
+    // ---- Copy boxes ----
+    document.querySelectorAll('.copybox-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = btn.getAttribute('data-copy');
+        // Allow lang-aware copy: if data-copy is a base id and no element
+        // matches, try `${id}-${currentLang}`.
+        var src = document.getElementById(id);
+        if (!src) {
+          var lang = document.body.getAttribute('data-lang') || 'de';
+          src = document.getElementById(id + '-' + lang);
+        }
+        if (!src) return;
+        var text = src.textContent;
+        navigator.clipboard.writeText(text).then(function () {
+          btn.classList.add('copied');
+          var spans = btn.querySelectorAll('span');
+          spans.forEach(function (s) {
+            s.dataset._orig = s.textContent;
+            s.textContent = s.lang === 'de' ? 'Kopiert!' : 'Copied!';
+          });
+          setTimeout(function () {
+            btn.classList.remove('copied');
+            spans.forEach(function (s) {
+              if (s.dataset._orig) s.textContent = s.dataset._orig;
+            });
+          }, 2000);
+        });
+      });
+    });
+  </script>
+</body>
+</html>

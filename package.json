@@ -1,0 +1,27 @@
+{
+  "name": "pullmd",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "server.js",
+  "license": "AGPL-3.0-or-later",
+  "author": "Aeterna Labs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AeternaLabsHQ/pullmd.git"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mozilla/readability": "^0.6.0",
+    "archiver": "^7.0.1",
+    "better-sqlite3": "^12.6.2",
+    "cheerio": "^1.2.0",
+    "express": "^5.2.1",
+    "linkedom": "^0.18.12",
+    "node-html-markdown": "^2.0.0",
+    "zod": "^4.3.6"
+  }
+}

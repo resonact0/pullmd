@@ -1,0 +1,43 @@
+services:
+  pullmd:
+    build: .
+    container_name: pullmd
+    restart: unless-stopped
+    environment:
+      - PUBLIC_URL=${PUBLIC_URL:-https://${HOST_DOMAIN}}
+      - TRAFILATURA_URL=http://trafilatura:8001/extract
+      - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID:-}
+      - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET:-}
+      - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
+    volumes:
+      - ./data:/app/data
+    networks:
+      - proxy
+      - pullmd-internal
+    depends_on:
+      - trafilatura
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pullmd.entrypoints=http"
+      - "traefik.http.routers.pullmd.rule=Host(`${HOST_DOMAIN}`)"
+      - "traefik.http.middlewares.pullmd-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.routers.pullmd.middlewares=pullmd-https-redirect"
+      - "traefik.http.routers.pullmd-secure.entrypoints=https"
+      - "traefik.http.routers.pullmd-secure.rule=Host(`${HOST_DOMAIN}`)"
+      - "traefik.http.routers.pullmd-secure.tls=true"
+      - "traefik.http.routers.pullmd-secure.service=pullmd"
+      - "traefik.http.services.pullmd.loadbalancer.server.port=3000"
+      - "traefik.docker.network=proxy"
+
+  trafilatura:
+    build: ./trafilatura-sidecar
+    container_name: pullmd-trafilatura
+    restart: unless-stopped
+    networks:
+      - pullmd-internal
+
+networks:
+  proxy:
+    external: true
+  pullmd-internal:
+    driver: bridge
