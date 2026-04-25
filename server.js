@@ -5,7 +5,7 @@ import { createCache } from './lib/cache.js';
 import { qualityScore } from './lib/scoring.js';
 import { buildFrontmatter } from './lib/frontmatter.js';
 import { mcpHandler } from './lib/mcp.js';
-import { renderHelp, getSkillZip, publicUrlFor } from './lib/distrib.js';
+import { renderHelp, renderIndex, getSkillZip, publicUrlFor } from './lib/distrib.js';
 
 function stripMarkdown(md) {
   return md
@@ -54,6 +54,13 @@ export function createApp(overrides = {}) {
   app.get(['/help', '/help.html'], (req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
     res.send(renderHelp(publicUrlFor(req)));
+  });
+
+  // Templated index page (substitutes PUBLIC_URL + version).
+  // Must come BEFORE express.static so it wins over the raw file in /public.
+  app.get(['/', '/index.html'], (req, res) => {
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(renderIndex(publicUrlFor(req)));
   });
 
   app.get('/web-reader.zip', async (req, res, next) => {

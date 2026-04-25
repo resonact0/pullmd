@@ -431,3 +431,21 @@ describe('GET /share', () => {
     }
   });
 });
+
+describe('GET / (templated index)', () => {
+  it('returns templated index.html with no unresolved placeholders', async () => {
+    const app = createApp();
+    const res = await request(app, '/');
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['content-type'].includes('text/html'));
+    assert.ok(!res.body.includes('__PULLMD_VERSION__'), 'version placeholder leaked');
+    assert.ok(!res.body.includes('__PULLMD_URL__'), 'URL placeholder leaked');
+  });
+
+  it('GET /index.html serves the same templated content', async () => {
+    const app = createApp();
+    const res = await request(app, '/index.html');
+    assert.equal(res.status, 200);
+    assert.ok(res.headers['content-type'].includes('text/html'));
+  });
+});
