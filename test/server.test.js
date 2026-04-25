@@ -433,13 +433,18 @@ describe('GET /share', () => {
 });
 
 describe('GET / (templated index)', () => {
-  it('returns templated index.html with no unresolved placeholders', async () => {
+  it('returns templated index.html with version and credit links', async () => {
     const app = createApp();
     const res = await request(app, '/');
     assert.equal(res.status, 200);
     assert.ok(res.headers['content-type'].includes('text/html'));
     assert.ok(!res.body.includes('__PULLMD_VERSION__'), 'version placeholder leaked');
     assert.ok(!res.body.includes('__PULLMD_URL__'), 'URL placeholder leaked');
+
+    const { PULLMD_VERSION } = await import('../lib/distrib.js');
+    assert.ok(res.body.includes(`v${PULLMD_VERSION}`), 'expected v<version> in body');
+    assert.ok(res.body.includes('AeternaLabsHQ/pullmd'), 'expected GitHub repo URL');
+    assert.ok(res.body.includes('AGPL-3.0'), 'expected license link text');
   });
 
   it('GET /index.html serves the same templated content', async () => {

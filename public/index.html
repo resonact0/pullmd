@@ -834,6 +834,17 @@
       .controls { gap: 0.5rem 0.875rem; }
       #go-btn { width: 100%; margin-left: 0; justify-content: center; }
     }
+
+    .foot {
+      margin-top: 3rem; padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.75rem; color: var(--fg-dim);
+      display: flex; justify-content: center; flex-wrap: wrap;
+      gap: 0.5rem 0.75rem; text-align: center;
+    }
+    .foot a { color: var(--link); }
+    .foot .sep { color: var(--fg-dim); opacity: 0.5; }
   </style>
 </head>
 <body data-theme="dark">
@@ -959,6 +970,23 @@
       </div>
       <div id="history-list" class="history-card"></div>
       <div id="stats-footer" class="stats" style="display:none;"></div>
+      <div class="foot" role="contentinfo">
+        <span>
+          PullMD
+          <a href="https://github.com/AeternaLabsHQ/pullmd/releases/tag/v__PULLMD_VERSION__"
+             target="_blank" rel="noopener">v__PULLMD_VERSION__</a>
+        </span>
+        <span class="sep">·</span>
+        <span>
+          Built by
+          <a href="https://github.com/AeternaLabsHQ" target="_blank" rel="noopener">Aeterna Labs</a>
+        </span>
+        <span class="sep">·</span>
+        <a href="https://github.com/AeternaLabsHQ/pullmd" target="_blank" rel="noopener">GitHub</a>
+        <span class="sep">·</span>
+        <a href="https://github.com/AeternaLabsHQ/pullmd/blob/main/LICENSE"
+           target="_blank" rel="noopener">AGPL-3.0</a>
+      </div>
     </div>
 
     <div id="archive-view" class="archive-view">
