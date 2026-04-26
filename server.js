@@ -178,7 +178,11 @@ export function createApp(overrides = {}) {
     }
 
     const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode']);
-    const useCache = cache && nocache !== 'true' && nocache !== '1';
+    // Explicit comment_depth/comment_limit changes the expected output, but we
+    // don't store these params per cache row — bypass the cache so the new
+    // values actually take effect (the fresh response then overwrites the row).
+    const explicitCommentParams = comment_depth !== undefined || comment_limit !== undefined;
+    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitCommentParams;
 
     const wantComments = comments !== 'false' && comments !== '0';
     const t0 = Date.now();

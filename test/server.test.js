@@ -116,6 +116,23 @@ describe('GET /api - web URLs', () => {
     assert.equal(callCount, 1);
   });
 
+  it('bypasses cache when comment_depth or comment_limit is explicitly set', async () => {
+    let callCount = 0;
+    const cache = createCache(':memory:');
+    const app = createApp({
+      extractPost: async () => {
+        callCount++;
+        return '# Reddit Post\n\nbody\n\n## Kommentare\n\n- one';
+      },
+      cache,
+    });
+    const url = 'https://www.reddit.com/r/test/comments/abc/title/';
+    await request(app, `/api?url=${encodeURIComponent(url)}`);
+    await request(app, `/api?url=${encodeURIComponent(url)}&comment_depth=5`);
+    await request(app, `/api?url=${encodeURIComponent(url)}&comment_limit=30`);
+    assert.equal(callCount, 3);
+  });
+
   it('bypasses cache when nocache=true', async () => {
     let callCount = 0;
     const cache = createCache(':memory:');
