@@ -111,7 +111,6 @@ export function createApp(overrides = {}) {
       const baseMd = await extract(entry.url, {
         comments: hadComments,
         commentDepth: 3,
-        commentLimit: 15,
         lang: inferredLang,
       });
       const titleMatch = baseMd.match(/^#\s+(.+)$/m);
@@ -234,7 +233,7 @@ export function createApp(overrides = {}) {
         const baseMd = await extract(url, {
           comments: wantComments,
           commentDepth: comment_depth ? parseInt(comment_depth, 10) : 3,
-          commentLimit: comment_limit ? parseInt(comment_limit, 10) : 15,
+          commentLimit: comment_limit ? parseInt(comment_limit, 10) : null,
           lang: reqLang,
         });
 
