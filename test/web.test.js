@@ -312,3 +312,52 @@ describe('extractWeb orchestrator with playwright fallback', () => {
     assert.deepEqual(events.map(e => e.stage), ['fetching', 'extracting']);
   });
 });
+
+describe('cleanDom CMS-pattern preprocessing', () => {
+  function fetchHtml(html) {
+    return async () => {
+      const headers = { get: (k) => k.toLowerCase() === 'content-type' ? 'text/html' : null };
+      return { ok: true, status: 200, headers, text: async () => html };
+    };
+  }
+
+  it('surfaces readonly <input> value as <code> in markdown', async () => {
+    const html = `<!doctype html><html><body><article><h1>API Model</h1>
+      ${Array.from({ length: 8 }, () => '<p>This is a paragraph that is comfortably long enough to count as a real paragraph for the metrics regex used in scoring and pickBest decisions.</p>').join('')}
+      <p>Copy this slug:</p>
+      <input type="text" readonly value="mistral-large-latest">
+    </article></body></html>`;
+    const result = await extractWeb('https://example.com/api', { fetch: fetchHtml(html) });
+    assert.match(result.markdown, /`mistral-large-latest`/);
+    assert.doesNotMatch(result.markdown, /<input/);
+  });
+
+  it('does not transform editable (non-readonly) inputs', async () => {
+    const html = `<!doctype html><html><body><article><h1>Form Demo</h1>
+      ${Array.from({ length: 8 }, () => '<p>This is a paragraph that is comfortably long enough to count as a real paragraph for the metrics regex used in scoring and pickBest decisions.</p>').join('')}
+      <input type="text" value="user@example.com">
+    </article></body></html>`;
+    const result = await extractWeb('https://example.com/form', { fetch: fetchHtml(html) });
+    assert.doesNotMatch(result.markdown, /`user@example\.com`/);
+  });
+
+  it('drops UUID alt-text on images, preserves the link', async () => {
+    const html = `<!doctype html><html><body><article><h1>Models</h1>
+      ${Array.from({ length: 8 }, () => '<p>This is a paragraph that is comfortably long enough to count as a real paragraph for the metrics regex used in scoring and pickBest decisions.</p>').join('')}
+      <img alt="9201fe9b-6130-4cfd-8f50-ee8a757ce553" src="https://cms.example.com/asset/9201fe9b-6130-4cfd-8f50-ee8a757ce553">
+    </article></body></html>`;
+    const result = await extractWeb('https://example.com/models', { fetch: fetchHtml(html) });
+    assert.doesNotMatch(result.markdown, /9201fe9b-6130-4cfd-8f50-ee8a757ce553\]/);
+    // Image link itself is still present (the URL contains the UUID; that's fine — only the alt was the noise).
+    assert.match(result.markdown, /cms\.example\.com\/asset\/9201fe9b-6130-4cfd-8f50-ee8a757ce553/);
+  });
+
+  it('preserves descriptive alt-text on images', async () => {
+    const html = `<!doctype html><html><body><article><h1>Photos</h1>
+      ${Array.from({ length: 8 }, () => '<p>This is a paragraph that is comfortably long enough to count as a real paragraph for the metrics regex used in scoring and pickBest decisions.</p>').join('')}
+      <img alt="A red sunset over mountains" src="https://example.com/photo.jpg">
+    </article></body></html>`;
+    const result = await extractWeb('https://example.com/photos', { fetch: fetchHtml(html) });
+    assert.match(result.markdown, /A red sunset over mountains/);
+  });
+});
