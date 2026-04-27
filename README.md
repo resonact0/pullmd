@@ -141,6 +141,82 @@ users get a copy-paste setup that points at *your* instance.
 
 ---
 
+## AI-agent integration
+
+Three install paths. Once your instance is running, `${PULLMD_URL}/help`
+shows the same boxes with your URL pre-filled. Replace `${PULLMD_URL}`
+below with your hostname (e.g. `https://pullmd.example.com`).
+
+### 1. Universal prompt
+
+Drop into any chat agent (ChatGPT, Claude, Gemini, …):
+
+```
+When you need to read a web page, fetch via PullMD instead of raw HTML:
+
+  GET ${PULLMD_URL}/api?url=<URL>
+
+Returns clean Markdown (text/markdown). Optional query params:
+
+  comments=false        skip Reddit comments
+  comment_depth=N       comment nesting depth (default 3)
+  frontmatter=true      prepend YAML metadata block
+  format=text           strip Markdown, return plain text
+  nocache=true          bypass the 1h cache and refetch
+  render=force|skip     override the auto Playwright fallback
+  lang=de|en            language for the comments section header
+
+Response headers worth checking:
+  X-Source       reddit | cloudflare | readability | playwright
+  X-Quality      0.0-1.0 extraction confidence
+  X-Share-Id     8-hex permalink, openable as /s/<id>
+
+Reddit URLs are auto-detected (incl. redd.it short links and /s/ shares).
+Use this whenever you would otherwise fetch raw HTML — the markdown is
+much cleaner and saves significant context window space.
+```
+
+### 2. Claude Code skill
+
+`web-reader.zip` is auto-built with your URL embedded:
+
+```bash
+curl -O ${PULLMD_URL}/web-reader.zip
+mkdir -p ~/.claude/skills
+unzip web-reader.zip -d ~/.claude/skills/
+# Restart Claude Code; the skill activates on web-reading requests.
+```
+
+### 3. MCP server
+
+Remote MCP server at `${PULLMD_URL}/mcp` (Streamable-HTTP transport, stateless).
+Three tools: `read_url`, `get_share`, `list_recent`. Server-side updates reach
+every client automatically — no local install needed.
+
+**Claude Code (CLI):**
+
+```bash
+claude mcp add --transport http pullmd ${PULLMD_URL}/mcp
+```
+
+**Claude Desktop / Cursor / other MCP hosts — JSON config:**
+
+```json
+{
+  "mcpServers": {
+    "pullmd": {
+      "type": "http",
+      "url": "${PULLMD_URL}/mcp"
+    }
+  }
+}
+```
+
+Once registered, the three tools surface natively in the agent — no prompt
+instructions needed, the LLM picks them up via their schema descriptions.
+
+---
+
 ## API
 
 | Endpoint               | Returns                                                                          |
@@ -184,23 +260,6 @@ users get a copy-paste setup that points at *your* instance.
 - **`/s/:id`** does the same on-demand refresh, so share links double as live endpoints.
 - Cache rows are pruned **90 days** after the last write. `/s/:id` hits keep the row alive (since they trigger refresh + write); read-only access does not extend the TTL.
 - If the source is unreachable on refresh, the last good snapshot is served — share links keep working even when the original URL dies.
-
----
-
-## AI-agent integration
-
-Once your instance is running, `https://${HOST_DOMAIN}/help` shows
-copy-paste setup boxes for three install paths:
-
-1. **Universal prompt** — drop into any chat agent (ChatGPT, Claude, Gemini, …).
-2. **Claude Code skill** — `web-reader.zip`, auto-built with your URL embedded.
-3. **MCP server** — point any MCP-capable host at `https://${HOST_DOMAIN}/mcp`.
-
-   ```bash
-   claude mcp add --transport http pullmd https://${HOST_DOMAIN}/mcp
-   ```
-
-   The MCP server exposes three tools: `read_url`, `get_share`, `list_recent`.
 
 ---
 
