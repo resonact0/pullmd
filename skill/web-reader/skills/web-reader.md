@@ -9,7 +9,14 @@ Read web pages as clean, structured Markdown via the self-hosted PullMD service.
 
 ## Why PullMD over WebFetch
 
-PullMD uses Mozilla Readability to extract the actual article content — stripping navigation, ads, sidebars, and footers. The result is clean Markdown that's much easier to work with than the raw HTML that WebFetch returns. For sites behind Cloudflare, PullMD can even get native Markdown directly via Cloudflare's `Accept: text/markdown` feature.
+PullMD runs a 4-stage extraction pipeline:
+
+1. **Reddit** — auto-detected URLs go through Reddit's JSON API with full comment trees.
+2. **Cloudflare** — sites that support `Accept: text/markdown` get native Markdown directly.
+3. **Static HTML** — Mozilla Readability and Trafilatura run in parallel; the higher-quality output wins.
+4. **Headless Chromium fallback** — when static extraction returns body-soup or low-quality output (typical for Next.js / SPA pages), the page is rendered in a real browser before extracting.
+
+The result is much cleaner than the raw HTML that WebFetch returns, and it works on JavaScript-heavy sites that WebFetch can't handle at all.
 
 ## How to use
 
@@ -24,10 +31,24 @@ curl -s "__PULLMD_URL__/api?url=<URL>"
 The response is `text/markdown` — ready to use as-is.
 
 **Available parameters:**
-- `url` (required) — The page to fetch
-- `comments=true` — Include the full page without content filtering (useful for forum threads, comment sections)
-- `format=text` — Strip Markdown formatting, return plain text
-- `nocache=true` — Bypass the 1-hour cache and fetch fresh content
+
+| Param           | Default | Notes                                                                       |
+| --------------- | ------- | --------------------------------------------------------------------------- |
+| `url`           | —       | Required.                                                                   |
+| `comments`      | `true`  | Include Reddit comments. Ignored for non-Reddit URLs.                       |
+| `comment_depth` | `3`     | Reddit comment nesting depth (1–10).                                        |
+| `comment_limit` | `15`    | Max top-level Reddit comments.                                              |
+| `frontmatter`   | `false` | Prepend YAML metadata (title, source, quality, share id, …).                |
+| `format`        | `md`    | `text` strips Markdown; `json` returns a structured response with metadata. |
+| `nocache`       | `false` | Bypass the 1-hour cache and refetch from source.                            |
+| `render`        | auto    | `force` → always render via Playwright. `skip` → never render. Bypasses cache. |
+| `lang`          | `de`    | Language for the comments-section header (`de` or `en`).                    |
+
+**Response headers worth checking:**
+
+- `X-Source` — `reddit` · `cloudflare` · `readability` · `readability-fallback` · `trafilatura` · `playwright`
+- `X-Quality` — `0.0–1.0` extraction confidence (low values mean the static extraction was thin or noisy)
+- `X-Share-Id` — 8-hex permalink, openable as `__PULLMD_URL__/s/<id>`
 
 **Example calls:**
 
@@ -40,14 +61,15 @@ curl -s "__PULLMD_URL__/api?url=https://reddit.com/r/node/comments/abc/title/&co
 
 # Get fresh (uncached) content
 curl -s "__PULLMD_URL__/api?url=https://example.com/news&nocache=true"
+
+# Force the Playwright fallback for a JS-rendered page that didn't trigger
+# the auto-detection (or where you want to be sure)
+curl -s "__PULLMD_URL__/api?url=https://mistral.ai/pricing&render=force"
 ```
 
 ### Step 2: Check if it worked
 
-If curl returns valid Markdown (starts with `#` or contains readable text), use that content. The `X-Source` response header tells you which extraction method was used:
-- `cloudflare` — Native Markdown from Cloudflare
-- `readability` — Extracted via Mozilla Readability + Turndown
-- `reddit` — Reddit JSON API extraction
+If curl returns valid Markdown (starts with `#` or contains readable text), use that content. The `X-Source` response header tells you which extraction method was used. If `X-Source: playwright`, the page needed JavaScript rendering — that's normal for SPAs (Next.js, React, Vue dashboards, …).
 
 ### Step 3: Fallback to WebFetch
 
@@ -74,7 +96,9 @@ Need to read a web page?
 
 ## Tips
 
-- PullMD caches results for 1 hour. Use `nocache=true` if you need the latest version.
-- For pages with important comments or discussions (forums, HN, Reddit), add `comments=true` to skip content filtering and get everything.
-- The `/api/history` endpoint shows recent conversions — useful for checking what's been fetched: `curl -s "__PULLMD_URL__/api/history?limit=5"`
-- Reddit URLs are automatically detected and use a specialized extraction pipeline that handles posts, comments, galleries, and videos.
+- PullMD caches results for 1 hour. Use `nocache=true` if you need the latest version. `render=force|skip` also bypasses the cache.
+- For pages with important comments or discussions (forums, HN, Reddit), add `comments=true` to include the discussion below the post.
+- For JS-rendered apps where the auto-fallback didn't fire (e.g. content lives in a tab the heuristic didn't reach), `render=force` re-extracts via headless Chromium.
+- Reddit URLs are automatically detected (incl. `redd.it` short links and `/r/<sub>/s/<id>` share links) and use a specialized extraction pipeline that handles posts, comments, galleries, and videos.
+- The `/api/history` endpoint shows recent conversions — useful for checking what's been fetched: `curl -s "__PULLMD_URL__/api/history?limit=5"`.
+- Persistent share links: every successful conversion gets an 8-hex `share_id`. `GET __PULLMD_URL__/s/<id>` returns the cached markdown and re-fetches from source if older than one hour — useful as a stable URL that always returns fresh content.
