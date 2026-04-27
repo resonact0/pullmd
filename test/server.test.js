@@ -578,3 +578,77 @@ describe('GET /api - render query param', () => {
     assert.equal(extractCalls, 1);
   });
 });
+
+describe('GET /api/stream', () => {
+  function parseSse(body) {
+    const out = [];
+    const blocks = body.split('\n\n').filter(Boolean);
+    for (const block of blocks) {
+      const lines = block.split('\n');
+      const event = (lines.find(l => l.startsWith('event: ')) || '').slice(7).trim();
+      const data  = (lines.find(l => l.startsWith('data: '))  || '').slice(6).trim();
+      out.push({ event, data: data ? JSON.parse(data) : null });
+    }
+    return out;
+  }
+
+  it('emits fetching → extracting → result for a clean web page', async () => {
+    const cache = createCache(':memory:');
+    const app = createApp({
+      extractWeb: async (url, { emit }) => {
+        emit('fetching', { url });
+        emit('extracting', { source: 'readability' });
+        return { markdown: '# Page', title: 'Page', source: 'readability', metadata: { quality: 1 } };
+      },
+      cache,
+    });
+    const res = await request(app, '/api/stream?url=https://example.com');
+    assert.equal(res.status, 200);
+    assert.match(res.headers['content-type'] || '', /text\/event-stream/);
+    const events = parseSse(res.body);
+    const stages = events.filter(e => e.event === 'status').map(e => e.data.stage);
+    assert.deepEqual(stages, ['fetching', 'extracting']);
+    const result = events.find(e => e.event === 'result');
+    assert.ok(result);
+    assert.equal(result.data.source, 'readability');
+    assert.match(result.data.markdown, /# Page/);
+  });
+
+  it('emits rendering stage on playwright fallback path', async () => {
+    const cache = createCache(':memory:');
+    const app = createApp({
+      extractWeb: async (url, { emit }) => {
+        emit('fetching', { url });
+        emit('extracting', { source: 'readability' });
+        emit('rendering', { reason: 'body-soup signature' });
+        emit('extracting', { source: 'playwright' });
+        return { markdown: '# Rendered', title: 'R', source: 'playwright', metadata: { quality: 0.9, extractorReason: 'body-soup signature → rendered via playwright' } };
+      },
+      cache,
+    });
+    const res = await request(app, '/api/stream?url=https://example.com');
+    const events = parseSse(res.body);
+    const stages = events.filter(e => e.event === 'status').map(e => e.data.stage);
+    assert.deepEqual(stages, ['fetching', 'extracting', 'rendering', 'extracting']);
+    const result = events.find(e => e.event === 'result');
+    assert.equal(result.data.source, 'playwright');
+  });
+
+  it('emits an error event when extraction throws', async () => {
+    const app = createApp({
+      extractWeb: async () => { throw new Error('upstream 502'); },
+      cache: createCache(':memory:'),
+    });
+    const res = await request(app, '/api/stream?url=https://example.com');
+    const events = parseSse(res.body);
+    const err = events.find(e => e.event === 'error');
+    assert.ok(err);
+    assert.match(err.data.message, /502/);
+  });
+
+  it('returns 400 when url param missing', async () => {
+    const app = createApp({});
+    const res = await request(app, '/api/stream');
+    assert.equal(res.status, 400);
+  });
+});

@@ -344,6 +344,122 @@ export function createApp(overrides = {}) {
     }
   });
 
+  app.get('/api/stream', async (req, res) => {
+    const { url, comments, frontmatter, lang, nocache, render } = req.query;
+    const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
+    const reqLang = lang === 'en' ? 'en' : 'de';
+
+    if (!url) {
+      return res.status(400).json({ error: 'Missing required parameter: url' });
+    }
+
+    res.set('Content-Type', 'text/event-stream; charset=utf-8');
+    res.set('Cache-Control', 'no-cache');
+    res.set('Connection', 'keep-alive');
+    res.flushHeaders?.();
+
+    const send = (event, data) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+    const emit = (stage, data = {}) => send('status', { stage, ...data });
+
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+
+    const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode']);
+    const wantComments = comments !== 'false' && comments !== '0';
+    const explicitRenderParam = render === 'force' || render === 'skip';
+    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitRenderParam;
+    const t0 = Date.now();
+
+    try {
+      // Cache hit fast path
+      if (useCache) {
+        const cached = cache.get(url);
+        if (cached) {
+          const redditCached = isRedditUrl(url);
+          const hasComments = cached.markdown.includes('\n## Kommentare') || cached.markdown.includes('\n## Comments');
+          if (!redditCached || !wantComments || hasComments) {
+            emit('fetching', { url, cached: true });
+            const baseMd = cached.markdown;
+            const cachedQuality = qualityScore(baseMd);
+            const titleMatchCached = baseMd.match(/^#\s+(.+)$/m);
+            const fm = wantFrontmatter
+              ? buildFrontmatter({ title: titleMatchCached?.[1] || cached.title, sourceUrl: url, quality: cachedQuality }, { source: cached.source, shareId: cached.share_id })
+              : '';
+            send('result', {
+              markdown: fm + baseMd,
+              source: cached.source,
+              shareId: cached.share_id || null,
+            });
+            cache.logExtraction({
+              url, source: cached.source, quality: cachedQuality, markdownLen: (fm + baseMd).length,
+              extractorReason: null, durationMs: Date.now() - t0, client, cached: true,
+            });
+            return res.end();
+          }
+        }
+      }
+
+      if (isRedditUrl(url)) {
+        emit('fetching', { url });
+        const baseMd = await extract(url, {
+          comments: wantComments,
+          commentDepth: 3,
+          commentLimit: null,
+          lang: reqLang,
+        });
+        emit('extracting', { source: 'reddit' });
+        const titleMatch = baseMd.match(/^#\s+(.+)$/m);
+        let shareId = null;
+        if (cache) {
+          shareId = cache.put({ url, title: titleMatch?.[1] || 'Reddit Post', markdown: baseMd, source: 'reddit', client });
+        }
+        const quality = qualityScore(baseMd);
+        const fm = wantFrontmatter
+          ? buildFrontmatter({ title: titleMatch?.[1] || null, sourceUrl: url, quality }, { source: 'reddit', shareId })
+          : '';
+        send('result', { markdown: fm + baseMd, source: 'reddit', shareId: shareId || null });
+        if (cache) cache.logExtraction({ url, source: 'reddit', quality, markdownLen: baseMd.length, extractorReason: null, durationMs: Date.now() - t0, client, cached: false });
+        return res.end();
+      }
+
+      // Web path with optional Playwright fallback inside extractWeb
+      const result = await extractWebFn(url, {
+        comments: false,
+        render: explicitRenderParam ? render : undefined,
+        emit,
+        signal: ac.signal,
+      });
+
+      let shareId = null;
+      if (cache) {
+        shareId = cache.put({ url, title: result.title, markdown: result.markdown, source: result.source, client });
+      }
+
+      const fm = wantFrontmatter
+        ? buildFrontmatter(result.metadata || {}, { source: result.source, shareId })
+        : '';
+      const finalMd = fm + result.markdown;
+
+      send('result', { markdown: finalMd, source: result.source, shareId: shareId || null });
+      if (cache) cache.logExtraction({
+        url, source: result.source,
+        quality: result.metadata?.quality,
+        markdownLen: result.markdown.length,
+        extractorReason: result.metadata?.extractorReason || null,
+        durationMs: Date.now() - t0,
+        client, cached: false,
+      });
+      res.end();
+    } catch (err) {
+      console.error('SSE stream error:', err);
+      send('error', { message: err.message || 'Internal error' });
+      res.end();
+    }
+  });
+
   app.get('/api/stats', (req, res) => {
     if (!cache) return res.json({ total: 0, window: '-7 days' });
     const window = req.query.window || '-7 days';
