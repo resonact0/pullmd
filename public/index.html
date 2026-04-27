@@ -1217,6 +1217,7 @@
         window.matchMedia('(display-mode: standalone)').matches ||
         window.navigator.standalone === true;
       const clientMode = isStandalone ? 'pwa' : 'browser';
+      let activeEventSource = null;
 
       const urlInput = document.getElementById('url-input');
       const commentsToggle = document.getElementById('comments-toggle');
@@ -1353,6 +1354,7 @@
         if (withComments && depth && depth !== 3) params.set('comment_depth', String(depth));
         if (frontmatterToggle.checked) params.set('frontmatter', 'true');
         params.set('lang', getLang());
+        if (clientMode) params.set('client_mode', clientMode);
 
         pushOpenState();
         showLoading();
@@ -1375,6 +1377,10 @@
       function fetchPostSSE(url, params, statusLine) {
         return new Promise((resolve, reject) => {
           const es = new EventSource('/api/stream?' + params.toString());
+          activeEventSource = es;
+          const cleanup = () => {
+            if (activeEventSource === es) activeEventSource = null;
+          };
           let gotResult = false;
           es.addEventListener('status', function (e) {
             try {
@@ -1391,6 +1397,7 @@
               var d = JSON.parse(e.data);
               gotResult = true;
               es.close();
+              cleanup();
               if (statusLine) statusLine.textContent = '';
               if (!d.markdown || !d.markdown.trim()) {
                 showError(t('err.empty'));
@@ -1399,7 +1406,7 @@
               }
               showResult(d.markdown, d.source || '', d.shareId || '');
               resolve();
-            } catch (err) { es.close(); reject(err); }
+            } catch (err) { es.close(); cleanup(); reject(err); }
           });
           es.addEventListener('error', function (e) {
             // Server-emitted error event carries data; transport errors don't.
@@ -1407,6 +1414,7 @@
               var d = e.data ? JSON.parse(e.data) : null;
               if (d && d.message) {
                 es.close();
+                cleanup();
                 showError(d.message);
                 if (statusLine) statusLine.textContent = '';
                 gotResult = true;
@@ -1418,6 +1426,7 @@
             // EventSource fires 'error' at end-of-stream too, hence the gotResult guard.
             if (!gotResult) {
               es.close();
+              cleanup();
               if (statusLine) statusLine.textContent = '';
               reject(new Error('SSE connection failed'));
             }
@@ -1806,6 +1815,10 @@
       });
 
       function goHome() {
+        if (activeEventSource) {
+          activeEventSource.close();
+          activeEventSource = null;
+        }
         if (archiveView.classList.contains('visible')) hideArchive();
         resultContainer.classList.remove('visible');
         errorEl.classList.remove('visible');

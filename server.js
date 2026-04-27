@@ -176,7 +176,7 @@ export function createApp(overrides = {}) {
       return res.status(400).json({ error: 'Missing required parameter: url' });
     }
 
-    const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode']);
+    const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode'] || req.query.client_mode);
     // Explicit comment_depth/comment_limit changes the expected output, but we
     // don't store these params per cache row — bypass the cache so the new
     // values actually take effect (the fresh response then overwrites the row).
@@ -367,7 +367,7 @@ export function createApp(overrides = {}) {
     const ac = new AbortController();
     req.on('close', () => ac.abort());
 
-    const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode']);
+    const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode'] || req.query.client_mode);
     const wantComments = comments !== 'false' && comments !== '0';
     const explicitRenderParam = render === 'force' || render === 'skip';
     const explicitCommentParams = comment_depth !== undefined || comment_limit !== undefined;
