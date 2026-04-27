@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from playwright.async_api import async_playwright, TimeoutError as PWTimeout
 import importlib.metadata
 
+logging.basicConfig(level=logging.INFO)
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -71,7 +73,7 @@ async def render(req: RenderRequest):
         raise HTTPException(status_code=400, detail="url field required")
 
     sem = state["sem"]
-    if sem.locked() and sem._value <= 0:
+    if sem.locked():
         raise HTTPException(status_code=503, detail="render queue saturated", headers={"Retry-After": "5"})
 
     async with sem:
