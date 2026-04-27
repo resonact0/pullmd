@@ -12,6 +12,14 @@ RUN npm ci --omit=dev
 # ---------- Stage 2: minimal runtime ----------
 FROM node:22-alpine
 
+LABEL org.opencontainers.image.title="PullMD"
+LABEL org.opencontainers.image.description="Self-hosted URL-to-Markdown service with stable, refreshable share links."
+LABEL org.opencontainers.image.source="https://github.com/AeternaLabsHQ/pullmd"
+LABEL org.opencontainers.image.url="https://github.com/AeternaLabsHQ/pullmd"
+LABEL org.opencontainers.image.documentation="https://github.com/AeternaLabsHQ/pullmd#readme"
+LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
+LABEL org.opencontainers.image.vendor="Aeterna Labs"
+
 RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app

@@ -1,5 +1,13 @@
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.title="PullMD Trafilatura sidecar"
+LABEL org.opencontainers.image.description="Trafilatura HTML-to-Markdown extractor sidecar for PullMD."
+LABEL org.opencontainers.image.source="https://github.com/AeternaLabsHQ/pullmd"
+LABEL org.opencontainers.image.url="https://github.com/AeternaLabsHQ/pullmd"
+LABEL org.opencontainers.image.documentation="https://github.com/AeternaLabsHQ/pullmd#readme"
+LABEL org.opencontainers.image.licenses="AGPL-3.0-or-later"
+LABEL org.opencontainers.image.vendor="Aeterna Labs"
+
 RUN useradd --create-home --shell /bin/bash app
 
 WORKDIR /app

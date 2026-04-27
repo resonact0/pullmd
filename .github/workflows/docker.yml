@@ -25,12 +25,18 @@ jobs:
           - name: pullmd
             context: .
             dockerfile: ./Dockerfile
+            readme: ./README.md
+            short: "Self-hosted URL-to-Markdown service with stable, refreshable share links."
           - name: pullmd-trafilatura
             context: ./trafilatura-sidecar
             dockerfile: ./trafilatura-sidecar/Dockerfile
+            readme: ./trafilatura-sidecar/README.md
+            short: "Trafilatura HTML-to-Markdown extractor sidecar for PullMD."
           - name: pullmd-playwright
             context: ./playwright-sidecar
             dockerfile: ./playwright-sidecar/Dockerfile
+            readme: ./playwright-sidecar/README.md
+            short: "Headless Chromium renderer sidecar for PullMD — handles JavaScript-rendered pages."
     steps:
       - uses: actions/checkout@v4
 
@@ -79,3 +85,13 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,scope=${{ matrix.name }},mode=max
+
+      - name: Sync Docker Hub README + short description
+        if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.NAMESPACE }}/${{ matrix.name }}
+          short-description: ${{ matrix.short }}
+          readme-filepath: ${{ matrix.readme }}
