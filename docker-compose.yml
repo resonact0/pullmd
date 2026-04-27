@@ -8,6 +8,7 @@ services:
     environment:
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:${PORT:-3000}}
       - TRAFILATURA_URL=http://trafilatura:8001/extract
+      - PLAYWRIGHT_URL=http://playwright:8002/render
       - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID:-}
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET:-}
       - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
@@ -17,10 +18,18 @@ services:
       - pullmd-internal
     depends_on:
       - trafilatura
+      - playwright
 
   trafilatura:
     image: ghcr.io/aeternalabshq/pullmd-trafilatura:latest
     container_name: pullmd-trafilatura
+    restart: unless-stopped
+    networks:
+      - pullmd-internal
+
+  playwright:
+    build: ./playwright-sidecar
+    container_name: pullmd-playwright
     restart: unless-stopped
     networks:
       - pullmd-internal
