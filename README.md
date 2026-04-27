@@ -25,21 +25,72 @@ subreddit feeds and similar.
 
 ## Quick start
 
+Pre-built images live on GHCR — no clone, no build. Drop the compose
+file somewhere and run:
+
+```bash
+mkdir pullmd && cd pullmd
+curl -O https://raw.githubusercontent.com/AeternaLabsHQ/pullmd/main/docker-compose.yml
+docker compose up -d
+# → http://localhost:3000
+```
+
+That's it. No `.env` needed: every variable has a sensible default
+and PullMD listens on port `3000`. Add a `.env` next to the compose
+file to override anything (see [Configuration](#configuration)).
+
+### `docker-compose.yml` (zero-config)
+
+```yaml
+services:
+  pullmd:
+    image: ghcr.io/aeternalabshq/pullmd:latest
+    container_name: pullmd
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - PUBLIC_URL=${PUBLIC_URL:-http://localhost:${PORT:-3000}}
+      - TRAFILATURA_URL=http://trafilatura:8001/extract
+      - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID:-}
+      - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET:-}
+      - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
+    volumes:
+      - ./data:/app/data
+    networks:
+      - pullmd-internal
+    depends_on:
+      - trafilatura
+
+  trafilatura:
+    image: ghcr.io/aeternalabshq/pullmd-trafilatura:latest
+    container_name: pullmd-trafilatura
+    restart: unless-stopped
+    networks:
+      - pullmd-internal
+
+networks:
+  pullmd-internal:
+    driver: bridge
+```
+
+### Behind Traefik
+
+For deployments behind Traefik with TLS, use `docker-compose.traefik.yml`
+instead. Same images, but with Traefik labels and the `proxy` external
+network. Set `HOST_DOMAIN` in `.env`:
+
+```bash
+curl -O https://raw.githubusercontent.com/AeternaLabsHQ/pullmd/main/docker-compose.traefik.yml
+echo "HOST_DOMAIN=pullmd.example.com" > .env
+docker compose -f docker-compose.traefik.yml up -d
+```
+
+### Local development (no Docker)
+
 ```bash
 git clone https://github.com/AeternaLabsHQ/pullmd.git
 cd pullmd
-cp .env.example .env
-$EDITOR .env          # set HOST_DOMAIN
-docker compose up -d --build
-```
-
-The compose file expects an external Traefik network named `proxy`
-and routes `https://${HOST_DOMAIN}` to the container. Adjust the
-labels in `docker-compose.yml` if you use a different reverse proxy.
-
-For local development without Docker:
-
-```bash
 npm install
 npm start             # http://localhost:3000
 npm test              # node --test
