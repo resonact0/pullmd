@@ -1,11 +1,12 @@
 services:
   pullmd:
-    image: ghcr.io/aeternalabshq/pullmd:latest
+    image: aeternalabshq/pullmd:latest
     container_name: pullmd
     restart: unless-stopped
     environment:
       - PUBLIC_URL=${PUBLIC_URL:-https://${HOST_DOMAIN}}
       - TRAFILATURA_URL=http://trafilatura:8001/extract
+      - PLAYWRIGHT_URL=http://playwright:8002/render
       - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID:-}
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET:-}
       - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
@@ -16,6 +17,7 @@ services:
       - pullmd-internal
     depends_on:
       - trafilatura
+      - playwright
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.pullmd.entrypoints=http"
@@ -30,8 +32,15 @@ services:
       - "traefik.docker.network=proxy"
 
   trafilatura:
-    image: ghcr.io/aeternalabshq/pullmd-trafilatura:latest
+    image: aeternalabshq/pullmd-trafilatura:latest
     container_name: pullmd-trafilatura
+    restart: unless-stopped
+    networks:
+      - pullmd-internal
+
+  playwright:
+    image: aeternalabshq/pullmd-playwright:latest
+    container_name: pullmd-playwright
     restart: unless-stopped
     networks:
       - pullmd-internal

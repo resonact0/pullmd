@@ -1,6 +1,6 @@
 services:
   pullmd:
-    image: ghcr.io/aeternalabshq/pullmd:latest
+    image: aeternalabshq/pullmd:latest
     container_name: pullmd
     restart: unless-stopped
     ports:
@@ -21,14 +21,14 @@ services:
       - playwright
 
   trafilatura:
-    image: ghcr.io/aeternalabshq/pullmd-trafilatura:latest
+    image: aeternalabshq/pullmd-trafilatura:latest
     container_name: pullmd-trafilatura
     restart: unless-stopped
     networks:
       - pullmd-internal
 
   playwright:
-    build: ./playwright-sidecar
+    image: aeternalabshq/pullmd-playwright:latest
     container_name: pullmd-playwright
     restart: unless-stopped
     networks:

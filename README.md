@@ -5,8 +5,9 @@ Self-hosted URL-to-Markdown service for humans and AI agents.
 PullMD takes any web URL and returns clean, readable Markdown — no
 navigation, no ads, no boilerplate. It auto-detects Reddit threads
 (with full comment trees), uses Cloudflare's native Markdown when
-available, and falls back to Mozilla Readability + Trafilatura for
-everything else.
+available, runs Mozilla Readability + Trafilatura on static HTML,
+and as a last resort renders JavaScript-heavy pages via headless
+Chromium (Playwright sidecar) before extracting.
 
 It ships as:
 
@@ -25,8 +26,8 @@ subreddit feeds and similar.
 
 ## Quick start
 
-Pre-built images live on GHCR — no clone, no build. Drop the compose
-file somewhere and run:
+Pre-built multi-arch images (`linux/amd64`, `linux/arm64`) live on Docker
+Hub. Drop the compose file somewhere and run:
 
 ```bash
 mkdir pullmd && cd pullmd
@@ -44,7 +45,7 @@ file to override anything (see [Configuration](#configuration)).
 ```yaml
 services:
   pullmd:
-    image: ghcr.io/aeternalabshq/pullmd:latest
+    image: aeternalabshq/pullmd:latest
     container_name: pullmd
     restart: unless-stopped
     ports:
@@ -52,6 +53,7 @@ services:
     environment:
       - PUBLIC_URL=${PUBLIC_URL:-http://localhost:${PORT:-3000}}
       - TRAFILATURA_URL=http://trafilatura:8001/extract
+      - PLAYWRIGHT_URL=http://playwright:8002/render
       - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID:-}
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET:-}
       - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
@@ -61,10 +63,18 @@ services:
       - pullmd-internal
     depends_on:
       - trafilatura
+      - playwright
 
   trafilatura:
-    image: ghcr.io/aeternalabshq/pullmd-trafilatura:latest
+    image: aeternalabshq/pullmd-trafilatura:latest
     container_name: pullmd-trafilatura
+    restart: unless-stopped
+    networks:
+      - pullmd-internal
+
+  playwright:
+    image: aeternalabshq/pullmd-playwright:latest
+    container_name: pullmd-playwright
     restart: unless-stopped
     networks:
       - pullmd-internal
@@ -73,6 +83,15 @@ networks:
   pullmd-internal:
     driver: bridge
 ```
+
+> **Note:** the Playwright sidecar adds **~3.7 GB** to your image cache
+> (Chromium + Firefox + WebKit binaries from the official Playwright
+> base image). It's optional — leave `PLAYWRIGHT_URL` unset and the
+> `playwright` service block off, and PullMD silently degrades to
+> static extraction with a fallback note in the metadata.
+
+> **Mirror on GHCR:** `ghcr.io/aeternalabshq/{pullmd,pullmd-trafilatura,pullmd-playwright}`.
+> Replace the `image:` lines if you prefer GitHub's registry.
 
 ### Behind Traefik
 
@@ -106,6 +125,8 @@ All variables go in `.env` (copy from `.env.example`):
 | ---------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
 | `HOST_DOMAIN`          | yes      | Public hostname without scheme. Used by Traefik routing and as fallback for `PUBLIC_URL`.           |
 | `PUBLIC_URL`           | no       | Full public origin embedded in `/help` and the skill zip. Defaults to `https://${HOST_DOMAIN}`.     |
+| `TRAFILATURA_URL`      | no       | URL of the Trafilatura sidecar's `/extract` endpoint. Unset → skip Trafilatura, Readability only.    |
+| `PLAYWRIGHT_URL`       | no       | URL of the Playwright sidecar's `/render` endpoint. Unset → skip Playwright fallback for JS pages.   |
 | `REDDIT_CLIENT_ID`     | no       | OAuth credentials for Reddit. Without them, PullMD uses the public JSON API (lower rate limit).     |
 | `REDDIT_CLIENT_SECRET` | no       |                                                                                                      |
 | `REDDIT_USER_AGENT`    | no       | Reddit requires a unique UA. Default: `PullMD/1.0 (URL-to-Markdown service)`.                       |
@@ -121,6 +142,7 @@ users get a copy-paste setup that points at *your* instance.
 | Endpoint               | Returns                                                                          |
 | ---------------------- | -------------------------------------------------------------------------------- |
 | `GET /api?url=…`       | Markdown (or JSON / plain text via `format=`).                                   |
+| `GET /api/stream?url=…`| Server-Sent Events stream of extraction-stage status, ending in a `result` event. Used by the PWA. |
 | `GET /s/:id`           | Cached Markdown by share id; refreshes from source if > 1 h old.                 |
 | `GET /api/history`     | Recent conversions (JSON).                                                       |
 | `GET /api/archive`     | Paginated full archive.                                                          |
@@ -132,20 +154,21 @@ users get a copy-paste setup that points at *your* instance.
 
 ### `/api` parameters
 
-| Param           | Default | Notes                                                            |
-| --------------- | ------- | ---------------------------------------------------------------- |
-| `url`           | —       | Required.                                                        |
-| `comments`      | `true`  | Include Reddit comments. Ignored for non-Reddit URLs.            |
-| `comment_depth` | `3`     | Max nesting depth (1–10).                                        |
-| `comment_limit` | `15`    | Max top-level comments.                                          |
-| `frontmatter`   | `false` | Prepend YAML metadata.                                           |
-| `format`        | `md`    | `text` strips Markdown; `json` returns structured response.      |
-| `nocache`       | `false` | Bypass the 1-hour cache.                                         |
-| `lang`          | `de`    | Comments-section header language (`de` or `en`).                 |
+| Param           | Default | Notes                                                                              |
+| --------------- | ------- | ---------------------------------------------------------------------------------- |
+| `url`           | —       | Required.                                                                          |
+| `comments`      | `true`  | Include Reddit comments. Ignored for non-Reddit URLs.                              |
+| `comment_depth` | `3`     | Max nesting depth (1–10).                                                          |
+| `comment_limit` | `15`    | Max top-level comments.                                                            |
+| `frontmatter`   | `false` | Prepend YAML metadata.                                                             |
+| `format`        | `md`    | `text` strips Markdown; `json` returns structured response.                        |
+| `nocache`       | `false` | Bypass the 1-hour cache.                                                           |
+| `render`        | auto    | `force` → always render via Playwright. `skip` → never render. Bypasses cache.     |
+| `lang`          | `de`    | Comments-section header language (`de` or `en`).                                   |
 
 ### Response headers
 
-- `X-Source` — `reddit` · `cloudflare` · `readability` · `trafilatura`
+- `X-Source` — `reddit` · `cloudflare` · `readability` · `readability-fallback` · `trafilatura` · `playwright`
 - `X-Quality` — `0.0`–`1.0` extraction confidence
 - `X-Share-Id` — the 8-hex permalink id
 
@@ -179,15 +202,18 @@ copy-paste setup boxes for three install paths:
 
 ## Architecture
 
-- `server.js` — Express app factory (`createApp`) with dependency injection for tests.
+- `server.js` — Express app factory (`createApp`) with dependency injection for tests. Exposes `/api` and `/api/stream` (SSE).
 - `lib/reddit.js` — Reddit URL normalization, redirect resolution, post + comment extraction.
-- `lib/web.js` — General web extraction: tries Cloudflare-Markdown first, then Readability + Trafilatura in parallel, scores both, picks the winner.
+- `lib/web.js` — Orchestrator: Cloudflare-Markdown short-circuit, then static Readability + Trafilatura with `pickBest`, then optional Playwright re-render + re-extract on body-soup / low-quality output.
+- `lib/render-decision.js` — Predicate that decides when to fall back to Playwright (readability-fellback + thin, body-soup signature, or quality < 0.5; plus `force` / `skip` overrides).
+- `lib/playwright-client.js` — HTTP client for the Playwright sidecar with `AbortSignal` propagation for SSE-disconnect cancellation.
+- `lib/scoring.js` — Quality scoring used to pick between extractors and as a render-trigger heuristic.
 - `lib/cache.js` — SQLite cache (`better-sqlite3`) with 90-day TTL and 8-hex share ids.
 - `lib/mcp.js` — Stateless MCP server registering the three tools.
 - `lib/distrib.js` — Public-URL substitution in `/help` and `/web-reader.zip`.
-- `lib/scoring.js` — Quality scoring used to pick between extractors.
 - `trafilatura-sidecar/` — Python sidecar (FastAPI) wrapping Trafilatura.
-- `public/` — PWA frontend (vanilla JS, dark/paper themes, service worker).
+- `playwright-sidecar/` — Python sidecar (FastAPI + Playwright + Chromium) for JS-rendered pages.
+- `public/` — PWA frontend (vanilla JS, dark/paper themes, service worker, EventSource client for `/api/stream`).
 - `skill/web-reader/` — Claude Code skill source (templated with `__PULLMD_URL__`).
 
 ---
