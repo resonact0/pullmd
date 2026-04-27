@@ -938,6 +938,7 @@
     <div class="loading" id="loading">
       <div class="spinner"></div>
       <span data-i18n="loading">Lade Seite…</span>
+      <div id="status-line" style="font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.75rem; color: var(--fg-dim); margin-top: 0.5rem; min-height: 1em;"></div>
     </div>
 
     <div class="error" id="error"></div>
@@ -1037,6 +1038,9 @@
           'stat.dbSize':       'DB-Größe',
           'stat.ttl':          'TTL',
           'stat.days':         '{n} Tage',
+          'status.fetching':   'Lade Seite …',
+          'status.extracting': 'Extrahiere Inhalt ({source}) …',
+          'status.rendering':  'Seite ist JavaScript-gerendert — versuche es im Browser nochmal …',
           'status.title':      'API-Status',
           'status.online':     'online',
           'status.offline':    'offline',
@@ -1080,6 +1084,9 @@
           'stat.dbSize':       'DB size',
           'stat.ttl':          'TTL',
           'stat.days':         '{n} days',
+          'status.fetching':   'Loading page …',
+          'status.extracting': 'Extracting content ({source}) …',
+          'status.rendering':  'Page is JavaScript-rendered — retrying in browser …',
           'status.title':      'API status',
           'status.online':     'online',
           'status.offline':    'offline',
@@ -1350,6 +1357,75 @@
         pushOpenState();
         showLoading();
 
+        const statusLine = document.getElementById('status-line');
+        if (statusLine) statusLine.textContent = '';
+
+        // Try SSE first; fall back to plain fetch on any failure.
+        if (typeof EventSource !== 'undefined') {
+          try {
+            await fetchPostSSE(url, params, statusLine);
+            return;
+          } catch (err) {
+            console.warn('SSE path failed, falling back to /api:', err);
+          }
+        }
+        await fetchPostPlain(url, params);
+      }
+
+      function fetchPostSSE(url, params, statusLine) {
+        return new Promise((resolve, reject) => {
+          const es = new EventSource('/api/stream?' + params.toString());
+          let gotResult = false;
+          es.addEventListener('status', function (e) {
+            try {
+              var d = JSON.parse(e.data);
+              if (statusLine) {
+                if (d.stage === 'fetching')        statusLine.textContent = t('status.fetching');
+                else if (d.stage === 'rendering')  statusLine.textContent = t('status.rendering');
+                else if (d.stage === 'extracting') statusLine.textContent = t('status.extracting', { source: d.source || '' });
+              }
+            } catch (_) {}
+          });
+          es.addEventListener('result', function (e) {
+            try {
+              var d = JSON.parse(e.data);
+              gotResult = true;
+              es.close();
+              if (statusLine) statusLine.textContent = '';
+              if (!d.markdown || !d.markdown.trim()) {
+                showError(t('err.empty'));
+                resolve();
+                return;
+              }
+              showResult(d.markdown, d.source || '', d.shareId || '');
+              resolve();
+            } catch (err) { es.close(); reject(err); }
+          });
+          es.addEventListener('error', function (e) {
+            // Server-emitted error event carries data; transport errors don't.
+            try {
+              var d = e.data ? JSON.parse(e.data) : null;
+              if (d && d.message) {
+                es.close();
+                showError(d.message);
+                if (statusLine) statusLine.textContent = '';
+                gotResult = true;
+                resolve();
+                return;
+              }
+            } catch (_) {}
+            // Network/transport error: only reject if we haven't already produced a result.
+            // EventSource fires 'error' at end-of-stream too, hence the gotResult guard.
+            if (!gotResult) {
+              es.close();
+              if (statusLine) statusLine.textContent = '';
+              reject(new Error('SSE connection failed'));
+            }
+          });
+        });
+      }
+
+      async function fetchPostPlain(url, params) {
         try {
           const res = await fetch('/api?' + params.toString(), {
             headers: { 'X-Client-Mode': clientMode },
