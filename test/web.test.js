@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractWeb } from '../lib/web.js';
 
@@ -207,6 +207,16 @@ describe('extractWeb - metadata', () => {
 });
 
 describe('extractWeb orchestrator with playwright fallback', () => {
+  let originalPlaywrightUrl;
+  beforeEach(() => { originalPlaywrightUrl = process.env.PLAYWRIGHT_URL; });
+  afterEach(()  => {
+    if (originalPlaywrightUrl === undefined) delete process.env.PLAYWRIGHT_URL;
+    else process.env.PLAYWRIGHT_URL = originalPlaywrightUrl;
+  });
+
+  // Helper: a minimal HTML payload that yields a low-quality static extraction
+  // (no <article>, mostly headings, no paragraph content) — triggers renderDecision
+  // predicate (iii) low-quality (<0.5).
   function soupHtml() {
     const heads = Array.from({ length: 20 }, (_, i) => `<h2>H${i}</h2>`).join('');
     return `<!doctype html><html><body>${heads}<p>tiny</p></body></html>`;
