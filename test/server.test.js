@@ -271,6 +271,28 @@ describe('GET /api/history', () => {
   });
 });
 
+describe('DELETE /api/cache/:id', () => {
+  it('returns 404 when the row does not exist', async () => {
+    const cache = createCache(':memory:');
+    const app = createApp({ cache });
+    const res = await request(app, '/api/cache/9999', { method: 'DELETE' });
+    assert.equal(res.status, 404);
+    const json = JSON.parse(res.body);
+    assert.match(json.error, /not found/i);
+  });
+
+  it('returns 200 and deletes the row when it exists', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://drop-me.com', title: 'D', markdown: '# D', source: 'readability' });
+    const id = cache.db.prepare('SELECT id FROM conversions WHERE url = ?').get('https://drop-me.com').id;
+    const app = createApp({ cache });
+    const res = await request(app, `/api/cache/${id}`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+    assert.equal(JSON.parse(res.body).ok, true);
+    assert.equal(cache.get('https://drop-me.com'), null);
+  });
+});
+
 describe('GET /api - JSON format', () => {
   it('returns JSON with metadata when format=json for web URLs', async () => {
     const app = createApp({

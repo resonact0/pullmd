@@ -151,6 +151,26 @@ describe('cache', () => {
     assert.equal(history.length, 5);
   });
 
+  it('orders history by created_at so re-fetches bubble to the top', () => {
+    cache.put({ url: 'https://old.com', title: 'Old', markdown: '# Old', source: 'readability' });
+    cache.put({ url: 'https://newer.com', title: 'Newer', markdown: '# Newer', source: 'readability' });
+    // Simulate the old row being re-fetched later — created_at advances past 'newer'.
+    cache.db.prepare("UPDATE conversions SET created_at = datetime('now', '+1 minute') WHERE url = ?").run('https://old.com');
+    const history = cache.history(10);
+    assert.equal(history[0].url, 'https://old.com', 're-fetched URL should be first despite lower id');
+    assert.equal(history[1].url, 'https://newer.com');
+    const page = cache.historyPage(10, 0);
+    assert.equal(page.items[0].url, 'https://old.com');
+  });
+
+  it('delete returns changes count', () => {
+    cache.put({ url: 'https://del.com', title: 'D', markdown: '# D', source: 'readability' });
+    const id = cache.db.prepare('SELECT id FROM conversions WHERE url = ?').get('https://del.com').id;
+    assert.equal(cache.delete(id).changes, 1);
+    assert.equal(cache.delete(id).changes, 0, 'second delete should be a no-op');
+    assert.equal(cache.delete(99999).changes, 0, 'delete on unknown id should be a no-op');
+  });
+
   describe('storageStats', () => {
     it('reports total, retention days, and db size', () => {
       cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'readability' });

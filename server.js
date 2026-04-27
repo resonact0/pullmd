@@ -376,8 +376,11 @@ export function createApp(overrides = {}) {
     }
     const id = parseInt(req.params.id, 10);
     if (!id) return res.status(400).json({ error: 'Invalid ID' });
-    cache.delete(id);
-    res.json({ ok: true });
+    const result = cache.delete(id);
+    if (!result.changes) {
+      return res.status(404).json({ error: 'Entry not found', id });
+    }
+    res.json({ ok: true, id });
   });
 
   app.delete('/api/cache', (req, res) => {

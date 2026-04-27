@@ -1667,17 +1667,34 @@
         content.appendChild(title);
         content.appendChild(meta);
         var delBtn = document.createElement('button');
+        delBtn.type = 'button';
         delBtn.className = 'archive-delete-btn';
         delBtn.textContent = '×';
         delBtn.title = t('archive.delete');
-        delBtn.addEventListener('click', function() {
-          fetch('/api/cache/' + item.id, { method: 'DELETE' }).then(function(res) {
-            if (res.ok) {
-              row.remove();
-              archiveTotal--;
-              archiveCount.textContent = t('archive.entries', { n: archiveTotal });
-            }
-          });
+        delBtn.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (delBtn.disabled) return;
+          delBtn.disabled = true;
+          fetch('/api/cache/' + item.id, { method: 'DELETE' })
+            .then(function(res) {
+              if (res.ok) {
+                row.remove();
+                archiveTotal--;
+                archiveCount.textContent = t('archive.entries', { n: archiveTotal });
+                return;
+              }
+              delBtn.disabled = false;
+              row.style.borderColor = 'var(--bad)';
+              delBtn.title = 'Delete failed (HTTP ' + res.status + ')';
+              console.warn('Archive delete failed:', res.status, item.id, item.url);
+            })
+            .catch(function(err) {
+              delBtn.disabled = false;
+              row.style.borderColor = 'var(--bad)';
+              delBtn.title = 'Delete failed: ' + err.message;
+              console.warn('Archive delete error:', err, item.id, item.url);
+            });
         });
         row.appendChild(content);
         row.appendChild(delBtn);
