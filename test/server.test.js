@@ -493,3 +493,88 @@ describe('GET / (templated index)', () => {
     assert.ok(res.headers['content-type'].includes('text/html'));
   });
 });
+
+describe('GET /api - render query param', () => {
+  it('passes render=force through to extractWeb', async () => {
+    let received;
+    const app = createApp({
+      extractWeb: async (url, opts) => {
+        received = opts;
+        return { markdown: '# Page', title: 'P', source: 'playwright', metadata: { quality: 1, extractorReason: 'forced' } };
+      },
+      cache: createCache(':memory:'),
+    });
+    const res = await request(app, '/api?url=https://example.com&render=force');
+    assert.equal(res.status, 200);
+    assert.equal(received.render, 'force');
+  });
+
+  it('passes render=skip through to extractWeb', async () => {
+    let received;
+    const app = createApp({
+      extractWeb: async (url, opts) => {
+        received = opts;
+        return { markdown: '# Page', title: 'P', source: 'readability', metadata: { quality: 1 } };
+      },
+      cache: createCache(':memory:'),
+    });
+    await request(app, '/api?url=https://example.com&render=skip');
+    assert.equal(received.render, 'skip');
+  });
+
+  it('passes undefined render when param absent', async () => {
+    let received;
+    const app = createApp({
+      extractWeb: async (url, opts) => {
+        received = opts;
+        return { markdown: '# Page', title: 'P', source: 'readability', metadata: { quality: 1 } };
+      },
+      cache: createCache(':memory:'),
+    });
+    await request(app, '/api?url=https://example.com');
+    assert.equal(received.render, undefined);
+  });
+
+  it('ignores invalid render values (e.g. render=bogus)', async () => {
+    let received;
+    const app = createApp({
+      extractWeb: async (url, opts) => {
+        received = opts;
+        return { markdown: '# Page', title: 'P', source: 'readability', metadata: { quality: 1 } };
+      },
+      cache: createCache(':memory:'),
+    });
+    await request(app, '/api?url=https://example.com&render=bogus');
+    assert.equal(received.render, undefined);
+  });
+
+  it('bypasses cache when render=force is set', async () => {
+    let extractCalls = 0;
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://example.com', title: 'Cached', markdown: '# Cached', source: 'readability' });
+    const app = createApp({
+      extractWeb: async (url, opts) => {
+        extractCalls++;
+        return { markdown: '# Fresh', title: 'F', source: 'playwright', metadata: { quality: 1 } };
+      },
+      cache,
+    });
+    await request(app, '/api?url=https://example.com&render=force');
+    assert.equal(extractCalls, 1, 'expected fresh extraction, not cached response');
+  });
+
+  it('bypasses cache when render=skip is set', async () => {
+    let extractCalls = 0;
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://example.com', title: 'Cached', markdown: '# Cached', source: 'readability' });
+    const app = createApp({
+      extractWeb: async (url, opts) => {
+        extractCalls++;
+        return { markdown: '# Fresh', title: 'F', source: 'readability', metadata: { quality: 1 } };
+      },
+      cache,
+    });
+    await request(app, '/api?url=https://example.com&render=skip');
+    assert.equal(extractCalls, 1);
+  });
+});

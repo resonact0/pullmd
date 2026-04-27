@@ -168,7 +168,7 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api', async (req, res) => {
-    const { url, comments, comment_depth, comment_limit, format, nocache, frontmatter, lang } = req.query;
+    const { url, comments, comment_depth, comment_limit, format, nocache, frontmatter, lang, render } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
     const reqLang = lang === 'en' ? 'en' : 'de';
 
@@ -181,7 +181,8 @@ export function createApp(overrides = {}) {
     // don't store these params per cache row — bypass the cache so the new
     // values actually take effect (the fresh response then overwrites the row).
     const explicitCommentParams = comment_depth !== undefined || comment_limit !== undefined;
-    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitCommentParams;
+    const explicitRenderParam = render === 'force' || render === 'skip';
+    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitCommentParams && !explicitRenderParam;
 
     const wantComments = comments !== 'false' && comments !== '0';
     const t0 = Date.now();
@@ -297,6 +298,7 @@ export function createApp(overrides = {}) {
     try {
       const result = await extractWebFn(url, {
         comments: false,
+        render: render === 'force' || render === 'skip' ? render : undefined,
       });
 
       let shareId = null;
