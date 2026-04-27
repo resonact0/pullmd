@@ -2,6 +2,10 @@
 
 Self-hosted URL-to-Markdown service for humans and AI agents.
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="PullMD web interface" width="800">
+</p>
+
 PullMD takes any web URL and returns clean, readable Markdown — no
 navigation, no ads, no boilerplate. It auto-detects Reddit threads
 (with full comment trees), uses Cloudflare's native Markdown when
