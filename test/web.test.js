@@ -205,3 +205,100 @@ describe('extractWeb - metadata', () => {
     assert.equal(result.metadata.sourceUrl, 'https://example.com/page');
   });
 });
+
+describe('extractWeb orchestrator with playwright fallback', () => {
+  function soupHtml() {
+    const heads = Array.from({ length: 20 }, (_, i) => `<h2>H${i}</h2>`).join('');
+    return `<!doctype html><html><body>${heads}<p>tiny</p></body></html>`;
+  }
+  function cleanHtml() {
+    const paras = Array.from({ length: 10 }, () =>
+      '<p>This is a body paragraph that is comfortably long enough for the metrics regex to match it as a real paragraph.</p>'
+    ).join('');
+    return `<!doctype html><html><body><article><h1>A real article</h1>${paras}</article></body></html>`;
+  }
+  function fetchWith(body, ct = 'text/html; charset=utf-8') {
+    return async () => {
+      const headers = { get: (k) => k.toLowerCase() === 'content-type' ? ct : null };
+      return { ok: true, status: 200, headers, text: async () => body };
+    };
+  }
+
+  it('does not call sidecar on a clean article', async () => {
+    let sidecarCalls = 0;
+    process.env.PLAYWRIGHT_URL = 'http://playwright:8002/render';
+    const result = await extractWeb('https://example.com', {
+      fetch: fetchWith(cleanHtml()),
+      renderClient: async () => { sidecarCalls++; return cleanHtml(); },
+    });
+    assert.equal(sidecarCalls, 0);
+    assert.notEqual(result.source, 'playwright');
+  });
+
+  it('calls sidecar and switches source to playwright when static result is low-quality', async () => {
+    process.env.PLAYWRIGHT_URL = 'http://playwright:8002/render';
+    let sidecarCalls = 0;
+    const result = await extractWeb('https://example.com', {
+      fetch: fetchWith(soupHtml()),
+      renderClient: async () => { sidecarCalls++; return cleanHtml(); },
+    });
+    assert.equal(sidecarCalls, 1);
+    assert.equal(result.source, 'playwright');
+    assert.match(result.metadata.extractorReason, /rendered via playwright/);
+  });
+
+  it('falls back to original (degraded) when sidecar throws', async () => {
+    process.env.PLAYWRIGHT_URL = 'http://playwright:8002/render';
+    const result = await extractWeb('https://example.com', {
+      fetch: fetchWith(soupHtml()),
+      renderClient: async () => { throw new Error('sidecar down'); },
+    });
+    assert.notEqual(result.source, 'playwright');
+    assert.match(result.metadata.extractorReason, /playwright fallback failed/);
+  });
+
+  it('honors render=force on a clean page', async () => {
+    process.env.PLAYWRIGHT_URL = 'http://playwright:8002/render';
+    let sidecarCalls = 0;
+    const result = await extractWeb('https://example.com', {
+      fetch: fetchWith(cleanHtml()),
+      renderClient: async () => { sidecarCalls++; return cleanHtml(); },
+      render: 'force',
+    });
+    assert.equal(sidecarCalls, 1);
+    assert.equal(result.source, 'playwright');
+  });
+
+  it('honors render=skip on a low-quality page', async () => {
+    process.env.PLAYWRIGHT_URL = 'http://playwright:8002/render';
+    let sidecarCalls = 0;
+    const result = await extractWeb('https://example.com', {
+      fetch: fetchWith(soupHtml()),
+      renderClient: async () => { sidecarCalls++; return cleanHtml(); },
+      render: 'skip',
+    });
+    assert.equal(sidecarCalls, 0);
+    assert.notEqual(result.source, 'playwright');
+  });
+
+  it('emits stage events in order on render path', async () => {
+    process.env.PLAYWRIGHT_URL = 'http://playwright:8002/render';
+    const events = [];
+    await extractWeb('https://example.com', {
+      fetch: fetchWith(soupHtml()),
+      renderClient: async () => cleanHtml(),
+      emit: (stage, data) => events.push({ stage, ...data }),
+    });
+    const stages = events.map(e => e.stage);
+    assert.deepEqual(stages, ['fetching', 'extracting', 'rendering', 'extracting']);
+  });
+
+  it('emits only fetching+extracting on no-render path', async () => {
+    const events = [];
+    await extractWeb('https://example.com', {
+      fetch: fetchWith(cleanHtml()),
+      emit: (stage, data) => events.push({ stage, ...data }),
+    });
+    assert.deepEqual(events.map(e => e.stage), ['fetching', 'extracting']);
+  });
+});
