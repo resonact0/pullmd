@@ -4,8 +4,6 @@ data/
 
 # Internal / dev-only — never publish
 CLAUDE.md
-SESSION_LOG.md
-pullmd-improvements-briefing.md
 docs/
 skill/web-reader-workspace/
 .claude/
