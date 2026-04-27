@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pullmd-v17';
+const CACHE_NAME = 'pullmd-v18';
 const SHELL_URLS = ['/', '/index.html', '/manifest.json'];
 
 self.addEventListener('install', (event) => {

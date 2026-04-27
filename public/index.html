@@ -654,6 +654,25 @@
     .history-card .h-row:last-child { border-bottom: none; }
     .history-card .h-row:hover { background: var(--bg-input); }
 
+    .h-delete-btn {
+      flex-shrink: 0;
+      width: 24px; height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      color: var(--fg-dim);
+      cursor: pointer;
+      font-size: 0.875rem;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+      margin-left: auto;
+    }
+    .history-card .h-row:hover .h-delete-btn { opacity: 0.6; }
+    .h-delete-btn:hover { opacity: 1 !important; color: var(--bad); border-color: var(--bad); }
+
     .h-favicon {
       width: 18px; height: 18px;
       border-radius: 4px;
@@ -1604,6 +1623,41 @@
 
             el.appendChild(fav);
             el.appendChild(main);
+
+            if (item.id) {
+              var delBtn = document.createElement('button');
+              delBtn.type = 'button';
+              delBtn.className = 'h-delete-btn';
+              delBtn.textContent = '×';
+              delBtn.title = t('archive.delete');
+              delBtn.addEventListener('click', (function(itm, row, btn) {
+                return function(e) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (btn.disabled) return;
+                  btn.disabled = true;
+                  fetch('/api/cache/' + itm.id, { method: 'DELETE' })
+                    .then(function(res) {
+                      if (res.ok) {
+                        row.remove();
+                        return;
+                      }
+                      btn.disabled = false;
+                      row.style.borderColor = 'var(--bad)';
+                      btn.title = 'Delete failed (HTTP ' + res.status + ')';
+                      console.warn('History delete failed:', res.status, itm.id, itm.url);
+                    })
+                    .catch(function(err) {
+                      btn.disabled = false;
+                      row.style.borderColor = 'var(--bad)';
+                      btn.title = 'Delete failed: ' + err.message;
+                      console.warn('History delete error:', err, itm.id, itm.url);
+                    });
+                };
+              })(item, el, delBtn));
+              el.appendChild(delBtn);
+            }
+
             el.addEventListener('click', function(itm) {
               return function(e) {
                 e.preventDefault();

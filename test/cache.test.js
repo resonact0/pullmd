@@ -140,6 +140,7 @@ describe('cache', () => {
     assert.equal(history[0].client, 'claude');
     assert.ok(history[0].share_id);
     assert.ok(history[0].created_at);
+    assert.ok(history[0].id, 'history entries must include id so the recents UI can issue DELETE /api/cache/:id');
     assert.equal(history[0].markdown, undefined);
   });
 
