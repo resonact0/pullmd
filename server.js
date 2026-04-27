@@ -298,7 +298,7 @@ export function createApp(overrides = {}) {
     try {
       const result = await extractWebFn(url, {
         comments: false,
-        render: render === 'force' || render === 'skip' ? render : undefined,
+        render: explicitRenderParam ? render : undefined,
       });
 
       let shareId = null;
