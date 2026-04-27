@@ -345,7 +345,7 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api/stream', async (req, res) => {
-    const { url, comments, frontmatter, lang, nocache, render } = req.query;
+    const { url, comments, comment_depth, comment_limit, frontmatter, lang, nocache, render } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
     const reqLang = lang === 'en' ? 'en' : 'de';
 
@@ -370,7 +370,8 @@ export function createApp(overrides = {}) {
     const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode']);
     const wantComments = comments !== 'false' && comments !== '0';
     const explicitRenderParam = render === 'force' || render === 'skip';
-    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitRenderParam;
+    const explicitCommentParams = comment_depth !== undefined || comment_limit !== undefined;
+    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitRenderParam && !explicitCommentParams;
     const t0 = Date.now();
 
     try {
@@ -402,12 +403,15 @@ export function createApp(overrides = {}) {
         }
       }
 
+      // Reddit-specific errors (404, 429, 403) are mapped to HTTP status codes in /api.
+      // Here they bubble to the outer catch and surface via the error event's message,
+      // which lib/reddit.js already populates with user-readable strings.
       if (isRedditUrl(url)) {
         emit('fetching', { url });
         const baseMd = await extract(url, {
           comments: wantComments,
-          commentDepth: 3,
-          commentLimit: null,
+          commentDepth: comment_depth ? parseInt(comment_depth, 10) : 3,
+          commentLimit: comment_limit ? parseInt(comment_limit, 10) : null,
           lang: reqLang,
         });
         emit('extracting', { source: 'reddit' });
@@ -455,7 +459,7 @@ export function createApp(overrides = {}) {
       res.end();
     } catch (err) {
       console.error('SSE stream error:', err);
-      send('error', { message: err.message || 'Internal error' });
+      send('error', { message: String(err?.message ?? err) || 'Internal error' });
       res.end();
     }
   });
