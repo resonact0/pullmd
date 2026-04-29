@@ -134,10 +134,18 @@ All variables go in `.env` (copy from `.env.example`):
 | `REDDIT_CLIENT_ID`     | no       | OAuth credentials for Reddit. Without them, PullMD uses the public JSON API (lower rate limit).     |
 | `REDDIT_CLIENT_SECRET` | no       |                                                                                                      |
 | `REDDIT_USER_AGENT`    | no       | Reddit requires a unique UA. Default: `PullMD/1.0 (URL-to-Markdown service)`.                       |
+| `DISABLE_PUBLIC_HISTORY` | no     | When `true`, hides the global recent-conversions list and archive (`/api/history` + `/api/archive` return 403, frontend hides the section). `/s/:id` share links keep working. Default: `false`. |
 
 `PUBLIC_URL` matters for self-hosting: the help page and downloadable
 skill embed it as the canonical endpoint. Set it correctly and your
 users get a copy-paste setup that points at *your* instance.
+
+`DISABLE_PUBLIC_HISTORY=true` is the privacy switch for shared
+instances (multi-tenant VPS, office deployments). Conversions still
+get cached and assigned share IDs; users just can't see what *other*
+users have fetched. Anyone with a known `/s/:id` link still gets
+their markdown back. Use this as a stopgap until per-user scoping
+lands.
 
 ---
 

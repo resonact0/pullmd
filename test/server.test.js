@@ -652,3 +652,110 @@ describe('GET /api/stream', () => {
     assert.equal(res.status, 400);
   });
 });
+
+describe('DISABLE_PUBLIC_HISTORY', () => {
+  it('returns 200 from /api/history by default (flag off)', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'readability' });
+    const app = createApp({ cache, disablePublicHistory: false });
+    const res = await request(app, '/api/history');
+    assert.equal(res.status, 200);
+    const data = JSON.parse(res.body);
+    assert.equal(data.length, 1);
+  });
+
+  it('returns 200 from /api/archive by default (flag off)', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'readability' });
+    const app = createApp({ cache, disablePublicHistory: false });
+    const res = await request(app, '/api/archive');
+    assert.equal(res.status, 200);
+    const data = JSON.parse(res.body);
+    assert.equal(data.total, 1);
+  });
+
+  it('returns 403 from /api/history when flag is on', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'readability' });
+    const app = createApp({ cache, disablePublicHistory: true });
+    const res = await request(app, '/api/history');
+    assert.equal(res.status, 403);
+    const json = JSON.parse(res.body);
+    assert.match(json.error, /disabled/i);
+  });
+
+  it('returns 403 from /api/archive when flag is on', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'readability' });
+    const app = createApp({ cache, disablePublicHistory: true });
+    const res = await request(app, '/api/archive');
+    assert.equal(res.status, 403);
+    const json = JSON.parse(res.body);
+    assert.match(json.error, /disabled/i);
+  });
+
+  it('keeps /s/:id working when flag is on (direct share access)', async () => {
+    const cache = createCache(':memory:');
+    const id = cache.put({ url: 'https://example.com/x', title: 'X', markdown: '# Hidden but reachable', source: 'readability', client: 'browser' });
+    const app = createApp({ cache, disablePublicHistory: true });
+    const res = await request(app, '/s/' + id);
+    assert.equal(res.status, 200);
+    assert.ok(res.body.includes('# Hidden but reachable'));
+  });
+
+  it('keeps /api/storage public when flag is on (footer stats are aggregate-only)', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'readability' });
+    const app = createApp({ cache, disablePublicHistory: true });
+    const res = await request(app, '/api/storage');
+    assert.equal(res.status, 200);
+    const data = JSON.parse(res.body);
+    assert.equal(data.total, 1);
+    assert.ok(typeof data.dbSizeBytes === 'number');
+  });
+
+  it('exposes the flag via /api/config', async () => {
+    const off = await request(createApp({ disablePublicHistory: false }), '/api/config');
+    assert.deepEqual(JSON.parse(off.body), { disablePublicHistory: false });
+    const on = await request(createApp({ disablePublicHistory: true }), '/api/config');
+    assert.deepEqual(JSON.parse(on.body), { disablePublicHistory: true });
+  });
+
+  it('reads DISABLE_PUBLIC_HISTORY=true from env when no override given', async () => {
+    const prev = process.env.DISABLE_PUBLIC_HISTORY;
+    process.env.DISABLE_PUBLIC_HISTORY = 'true';
+    try {
+      const app = createApp({ cache: createCache(':memory:') });
+      const res = await request(app, '/api/history');
+      assert.equal(res.status, 403);
+    } finally {
+      if (prev === undefined) delete process.env.DISABLE_PUBLIC_HISTORY;
+      else process.env.DISABLE_PUBLIC_HISTORY = prev;
+    }
+  });
+
+  it('treats DISABLE_PUBLIC_HISTORY=false / unset as disabled-off', async () => {
+    const prev = process.env.DISABLE_PUBLIC_HISTORY;
+    process.env.DISABLE_PUBLIC_HISTORY = 'false';
+    try {
+      const app = createApp({ cache: createCache(':memory:') });
+      const res = await request(app, '/api/history');
+      assert.equal(res.status, 200);
+    } finally {
+      if (prev === undefined) delete process.env.DISABLE_PUBLIC_HISTORY;
+      else process.env.DISABLE_PUBLIC_HISTORY = prev;
+    }
+  });
+
+  it('substitutes the disable-history flag into the rendered index html', async () => {
+    const onApp = createApp({ disablePublicHistory: true });
+    const onRes = await request(onApp, '/');
+    assert.equal(onRes.status, 200);
+    assert.ok(!onRes.body.includes('__PULLMD_DISABLE_HISTORY_FLAG__'), 'placeholder leaked');
+    assert.ok(onRes.body.includes('window.__PULLMD_DISABLE_HISTORY__ = true'), 'expected flag=true in html');
+
+    const offApp = createApp({ disablePublicHistory: false });
+    const offRes = await request(offApp, '/');
+    assert.ok(offRes.body.includes('window.__PULLMD_DISABLE_HISTORY__ = false'), 'expected flag=false in html');
+  });
+});

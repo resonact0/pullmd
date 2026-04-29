@@ -12,6 +12,7 @@ services:
       - REDDIT_CLIENT_ID=${REDDIT_CLIENT_ID:-}
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET:-}
       - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
+      - DISABLE_PUBLIC_HISTORY=${DISABLE_PUBLIC_HISTORY:-false}
     volumes:
       - ./data:/app/data
     networks:

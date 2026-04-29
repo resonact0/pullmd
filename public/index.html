@@ -1025,6 +1025,7 @@
     </div>
   </div>
 
+  <script>window.__PULLMD_DISABLE_HISTORY__ = __PULLMD_DISABLE_HISTORY_FLAG__;</script>
   <script>
     // ---- i18n: DE/EN, default from navigator.language, persisted override ----
     (function () {
@@ -1671,8 +1672,10 @@
         } catch (e) {}
       }
 
-      loadHistory();
-      window.addEventListener('langchange', loadHistory);
+      if (!window.__PULLMD_DISABLE_HISTORY__) {
+        loadHistory();
+        window.addEventListener('langchange', loadHistory);
+      }
 
       // ---- Storage stats ----
       async function loadStorageStats() {
@@ -1853,7 +1856,9 @@
           });
       }
 
-      archiveLink.addEventListener('click', function(e) { e.preventDefault(); showArchive(); });
+      if (!window.__PULLMD_DISABLE_HISTORY__) {
+        archiveLink.addEventListener('click', function(e) { e.preventDefault(); showArchive(); });
+      }
       archiveBackBtn.addEventListener('click', function(e) { e.preventDefault(); hideArchive(); });
       archiveMoreBtn.addEventListener('click', loadArchivePage);
       archiveDeleteAllBtn.addEventListener('click', function() {

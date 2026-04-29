@@ -43,11 +43,19 @@ function detectClient(ua, clientMode) {
   return 'api';
 }
 
+function readDisablePublicHistoryEnv() {
+  const v = process.env.DISABLE_PUBLIC_HISTORY;
+  if (v == null) return false;
+  const s = String(v).toLowerCase().trim();
+  return s === 'true' || s === '1' || s === 'yes' || s === 'on';
+}
+
 export function createApp(overrides = {}) {
   const app = express();
   const extract = overrides.extractPost || extractPost;
   const extractWebFn = overrides.extractWeb || extractWeb;
   const cache = overrides.cache || null;
+  const disablePublicHistory = overrides.disablePublicHistory ?? readDisablePublicHistoryEnv();
 
   // Templated help page + skill zip (PUBLIC_URL substitution).
   // Must come BEFORE express.static so they win over the raw files in /public.
@@ -60,7 +68,7 @@ export function createApp(overrides = {}) {
   // Must come BEFORE express.static so it wins over the raw file in /public.
   app.get(['/', '/index.html'], (req, res) => {
     res.set('Content-Type', 'text/html; charset=utf-8');
-    res.send(renderIndex(publicUrlFor(req)));
+    res.send(renderIndex(publicUrlFor(req), { disablePublicHistory }));
   });
 
   app.get('/web-reader.zip', async (req, res, next) => {
@@ -475,7 +483,14 @@ export function createApp(overrides = {}) {
     res.json(cache.storageStats());
   });
 
+  app.get('/api/config', (req, res) => {
+    res.json({ disablePublicHistory });
+  });
+
   app.get('/api/history', (req, res) => {
+    if (disablePublicHistory) {
+      return res.status(403).json({ error: 'Public history is disabled on this instance.' });
+    }
     if (!cache) {
       return res.json([]);
     }
@@ -484,6 +499,9 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api/archive', (req, res) => {
+    if (disablePublicHistory) {
+      return res.status(403).json({ error: 'Public history is disabled on this instance.' });
+    }
     if (!cache) {
       return res.json({ items: [], total: 0 });
     }
