@@ -108,12 +108,13 @@ describe('formatPost', () => {
     assert.ok(result.includes('![](https://i.redd.it/example.png)'), 'image embed missing');
     assert.ok(result.includes('Body paragraph one.'), 'selftext missing');
     assert.ok(result.includes('Body paragraph two with **markdown**.'), 'selftext markdown missing');
-    // Order: header → selftext → image
+    // Order: header → image → selftext (matches Reddit's visual layout:
+    // image directly under the title, selftext below as OP's explanation)
     const headerIdx = result.indexOf('# Test Post Title');
-    const selftextIdx = result.indexOf('Body paragraph one.');
     const imageIdx = result.indexOf('![](https://i.redd.it/example.png)');
-    assert.ok(headerIdx < selftextIdx && selftextIdx < imageIdx,
-      `expected header < selftext < image, got ${headerIdx} < ${selftextIdx} < ${imageIdx}`);
+    const selftextIdx = result.indexOf('Body paragraph one.');
+    assert.ok(headerIdx < imageIdx && imageIdx < selftextIdx,
+      `expected header < image < selftext, got ${headerIdx} < ${imageIdx} < ${selftextIdx}`);
   });
 
   it('renders selftext alongside a gallery when a gallery post has a body', () => {
