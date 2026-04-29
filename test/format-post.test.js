@@ -108,6 +108,12 @@ describe('formatPost', () => {
     assert.ok(result.includes('![](https://i.redd.it/example.png)'), 'image embed missing');
     assert.ok(result.includes('Body paragraph one.'), 'selftext missing');
     assert.ok(result.includes('Body paragraph two with **markdown**.'), 'selftext markdown missing');
+    // Order: header → selftext → image
+    const headerIdx = result.indexOf('# Test Post Title');
+    const selftextIdx = result.indexOf('Body paragraph one.');
+    const imageIdx = result.indexOf('![](https://i.redd.it/example.png)');
+    assert.ok(headerIdx < selftextIdx && selftextIdx < imageIdx,
+      `expected header < selftext < image, got ${headerIdx} < ${selftextIdx} < ${imageIdx}`);
   });
 
   it('renders selftext alongside a gallery when a gallery post has a body', () => {
