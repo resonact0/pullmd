@@ -94,4 +94,58 @@ describe('formatPost', () => {
     assert.ok(result.includes('![](https://preview.redd.it/img1.jpg?width=1080&format=png)'));
     assert.ok(result.includes('![](https://preview.redd.it/img2.jpg?width=1080&format=png)'));
   });
+
+  it('renders selftext alongside an image when an image post has a body', () => {
+    // Reddit lets non-self posts (post_hint=image, is_gallery=true, video, link)
+    // also carry selftext. Previously the image branch dropped selftext silently.
+    const result = formatPost(makePostData({
+      is_self: false,
+      selftext: 'Body paragraph one.\n\nBody paragraph two with **markdown**.',
+      url: 'https://i.redd.it/example.png',
+      post_hint: 'image',
+    }), 'https://www.reddit.com/r/javascript/comments/abc123/test_post/');
+    assert.ok(result.includes('# Test Post Title'), 'header missing');
+    assert.ok(result.includes('![](https://i.redd.it/example.png)'), 'image embed missing');
+    assert.ok(result.includes('Body paragraph one.'), 'selftext missing');
+    assert.ok(result.includes('Body paragraph two with **markdown**.'), 'selftext markdown missing');
+  });
+
+  it('renders selftext alongside a gallery when a gallery post has a body', () => {
+    const result = formatPost(makePostData({
+      is_self: false,
+      selftext: 'Caption for the gallery.',
+      url: 'https://www.reddit.com/gallery/abc123',
+      gallery_data: { items: [{ media_id: 'img1' }, { media_id: 'img2' }] },
+      media_metadata: {
+        img1: { s: { u: 'https://preview.redd.it/img1.jpg' } },
+        img2: { s: { u: 'https://preview.redd.it/img2.jpg' } },
+      },
+    }));
+    assert.ok(result.includes('![](https://preview.redd.it/img1.jpg)'));
+    assert.ok(result.includes('![](https://preview.redd.it/img2.jpg)'));
+    assert.ok(result.includes('Caption for the gallery.'), 'selftext caption missing');
+  });
+
+  it('renders selftext alongside a video when a video post has a body', () => {
+    const result = formatPost(makePostData({
+      is_self: false,
+      is_video: true,
+      selftext: 'Description below the video.',
+      url: 'https://v.redd.it/abc',
+      media: { reddit_video: { fallback_url: 'https://v.redd.it/abc/DASH_720.mp4' } },
+    }));
+    assert.ok(result.includes('https://v.redd.it/abc/DASH_720.mp4'));
+    assert.ok(result.includes('Description below the video.'));
+  });
+
+  it('renders selftext alongside a link when a link post has a body', () => {
+    const result = formatPost(makePostData({
+      is_self: false,
+      selftext: 'Why this article matters.',
+      url: 'https://example.com/article',
+      post_hint: 'link',
+    }));
+    assert.ok(result.includes('https://example.com/article'));
+    assert.ok(result.includes('Why this article matters.'));
+  });
 });
