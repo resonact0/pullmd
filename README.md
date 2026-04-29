@@ -223,6 +223,53 @@ claude mcp add --transport http pullmd ${PULLMD_URL}/mcp
 Once registered, the three tools surface natively in the agent — no prompt
 instructions needed, the LLM picks them up via their schema descriptions.
 
+### MCP client compatibility & auth
+
+PullMD's MCP endpoint works with multiple Claude clients, but each client
+supports auth differently:
+
+| Client          | Bearer header (`PULLMD_AUTH_TOKEN`)   | OAuth          | Status      |
+| --------------- | ------------------------------------- | -------------- | ----------- |
+| Claude Code CLI | ✅ works today                        | not needed     | Recommended |
+| Cursor          | ✅ works today                        | not needed     | Recommended |
+| Claude Desktop  | ❌ UI doesn't support custom headers  | needs Phase 2  | Limited     |
+| claude.ai (web) | ❌ not supported by client            | needs Phase 2  | Limited     |
+
+#### Claude Desktop limitation
+
+The Claude Desktop "Add custom connector" UI accepts URL + OAuth
+Client ID/Secret but no custom-header field. Additionally,
+`claude_desktop_config.json` entries with `"type": "http"` are silently
+rewritten to `{}` after Desktop launches (current Desktop only honors
+stdio servers in that file).
+
+Until OAuth support lands (see [#6](https://github.com/AeternaLabsHQ/pullmd/issues/6)),
+the practical workaround for Claude Desktop users is a reverse proxy
+that accepts the auth token as either a bearer header (for CLI) or as a
+URL path prefix (for Desktop, which has no header field).
+
+#### Caddy workaround for Claude Desktop
+
+Contributed by [@WinFuture23](https://github.com/AeternaLabsHQ/pullmd/issues/10):
+
+```caddy
+@bearer header Authorization "Bearer {$AUTH_TOKEN}"
+handle @bearer { reverse_proxy pullmd:3000 }
+
+@token_path path /{$AUTH_TOKEN}/* /{$AUTH_TOKEN}
+handle @token_path {
+    uri strip_prefix /{$AUTH_TOKEN}
+    reverse_proxy pullmd:3000
+}
+```
+
+Then in Claude Desktop's connector dialog, use the URL with the token
+path prefix: `https://your-instance.com/<TOKEN>/mcp`. CLI clients keep
+using the `Authorization` header as normal.
+
+This is a stopgap pattern; native OAuth (Phase 2) will remove the need
+for it.
+
 ---
 
 ## API
