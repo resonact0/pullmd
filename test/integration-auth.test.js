@@ -119,3 +119,31 @@ describe('integration: auth gating in createApp', () => {
     });
   });
 });
+
+describe('integration: per-user history', () => {
+  it('user only sees their own fetches in /api/history', async () => {
+    await withApp('multi-user', async (base, { auth, cache }) => {
+      const adminId = cache.db.prepare("SELECT id FROM users").get().id;
+      const { fullKey: adminKey } = auth.createApiKey(adminId, 'admin');
+
+      const otherU = await auth.createUser({ email: 'other@x.y', password: 'pw1234567' });
+      const { fullKey: otherKey } = auth.createApiKey(otherU.id, 'other');
+
+      await fetch(base + '/api?url=https://admin-only.com&nocache=1', {
+        headers: { Authorization: `Bearer ${adminKey}` },
+      });
+      await fetch(base + '/api?url=https://other-only.com&nocache=1', {
+        headers: { Authorization: `Bearer ${otherKey}` },
+      });
+
+      const adminHist = await (await fetch(base + '/api/history', {
+        headers: { Authorization: `Bearer ${adminKey}` },
+      })).json();
+      const otherHist = await (await fetch(base + '/api/history', {
+        headers: { Authorization: `Bearer ${otherKey}` },
+      })).json();
+      assert.deepEqual(adminHist.map(h => h.url), ['https://admin-only.com']);
+      assert.deepEqual(otherHist.map(h => h.url), ['https://other-only.com']);
+    });
+  });
+});

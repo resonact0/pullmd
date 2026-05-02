@@ -505,18 +505,21 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api/history', gate, (req, res) => {
-    if (disablePublicHistory) {
+    if (disablePublicHistory && !req.user) {
       return res.status(403).json({ error: 'Public history is disabled on this instance.' });
     }
     if (!cache) {
       return res.json([]);
     }
     const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+    if (req.user) {
+      return res.json(cache.historyForUser(req.user.id, limit));
+    }
     res.json(cache.history(limit));
   });
 
   app.get('/api/archive', gate, (req, res) => {
-    if (disablePublicHistory) {
+    if (disablePublicHistory && !req.user) {
       return res.status(403).json({ error: 'Public history is disabled on this instance.' });
     }
     if (!cache) {
@@ -524,6 +527,9 @@ export function createApp(overrides = {}) {
     }
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
     const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    if (req.user) {
+      return res.json(cache.historyPageForUser(req.user.id, limit, offset));
+    }
     res.json(cache.historyPage(limit, offset));
   });
 

@@ -71,3 +71,51 @@ describe('cache schema for auth', () => {
     assert.equal(u.is_admin, 0);
   });
 });
+
+describe('cache: user-scoped history', () => {
+  let cache, userA, userB;
+  beforeEach(() => {
+    cache = createCache(':memory:');
+    userA = cache.db.prepare("INSERT INTO users (email, password_hash) VALUES ('a@x.y', 'h') RETURNING id").get().id;
+    userB = cache.db.prepare("INSERT INTO users (email, password_hash) VALUES ('b@x.y', 'h') RETURNING id").get().id;
+  });
+
+  it('cache.put records a user_fetch when user_id is provided', () => {
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'readability', user_id: userA });
+    const fetches = cache.db.prepare("SELECT user_id FROM user_fetches").all();
+    assert.equal(fetches.length, 1);
+    assert.equal(fetches[0].user_id, userA);
+  });
+
+  it('cache.put with user_id=null does NOT record a user_fetch', () => {
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'readability', user_id: null });
+    assert.equal(cache.db.prepare("SELECT COUNT(*) c FROM user_fetches").get().c, 0);
+  });
+
+  it('historyForUser returns only that user\'s fetches', () => {
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'r', user_id: userA });
+    cache.put({ url: 'https://b.com', title: 'B', markdown: '# B', source: 'r', user_id: userB });
+    cache.put({ url: 'https://c.com', title: 'C', markdown: '# C', source: 'r', user_id: userA });
+    const a = cache.historyForUser(userA, 10);
+    const b = cache.historyForUser(userB, 10);
+    assert.deepEqual(a.map(x => x.url).sort(), ['https://a.com', 'https://c.com']);
+    assert.deepEqual(b.map(x => x.url).sort(), ['https://b.com']);
+  });
+
+  it('historyPageForUser paginates per user', () => {
+    for (let i = 0; i < 25; i++) {
+      cache.put({ url: `https://a.com/${i}`, title: `A${i}`, markdown: '# A', source: 'r', user_id: userA });
+    }
+    cache.put({ url: 'https://b.com', title: 'B', markdown: '# B', source: 'r', user_id: userB });
+    const p = cache.historyPageForUser(userA, 10, 0);
+    assert.equal(p.items.length, 10);
+    assert.equal(p.total, 25);
+  });
+
+  it('re-fetching same URL by same user does not duplicate fetches', () => {
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# A', source: 'r', user_id: userA });
+    cache.put({ url: 'https://a.com', title: 'A2', markdown: '# A2', source: 'r', user_id: userA });
+    const c = cache.db.prepare("SELECT COUNT(*) c FROM user_fetches WHERE user_id = ?").get(userA).c;
+    assert.equal(c, 1);
+  });
+});
