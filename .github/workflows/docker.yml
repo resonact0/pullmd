@@ -66,13 +66,21 @@ jobs:
           images: |
             ${{ env.GHCR }}/${{ env.NAMESPACE }}/${{ matrix.name }}
             ${{ env.NAMESPACE }}/${{ matrix.name }}
+          # Tag plan during the v1 → v2 migration grace period:
+          #   - vX.Y.Z tag push      → vX.Y.Z, X.Y, X
+          #   - main push (untagged) → main, sha-<sha>
+          #   - `latest` is intentionally PINNED to v1.2.x via the v1.2.x image
+          #     in the registry. Neither tag pushes nor merges to main update
+          #     it. Re-enable by uncommenting the type=raw line below once
+          #     self-hosters have had time to migrate (≈ 2 weeks post-v2.0.0).
           tags: |
             type=ref,event=branch
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
             type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
+            # type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         uses: docker/build-push-action@v5

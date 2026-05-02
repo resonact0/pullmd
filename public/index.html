@@ -864,19 +864,63 @@
     }
     .foot a { color: var(--link); }
     .foot .sep { color: var(--fg-dim); opacity: 0.5; }
+
+    /* =========================================================
+       Auth-misconfig banner
+       ========================================================= */
+    .auth-warning {
+      position: sticky; top: 0; z-index: 1000;
+      /* Frosted-glass: strong red wash with backdrop-blur so any scrolling
+         content behind the banner reads as a soft wash, not as text. */
+      background-color: rgba(255, 100, 100, 0.32);
+      backdrop-filter: blur(14px) saturate(1.5);
+      -webkit-backdrop-filter: blur(14px) saturate(1.5);
+      color: var(--fg);
+      border-bottom: 2px solid var(--bad);
+      padding: 0.75rem 1rem;
+      font-size: 0.875rem; line-height: 1.5;
+      text-align: center;
+    }
+    body[data-theme="paper"] .auth-warning {
+      background-color: rgba(198, 40, 40, 0.22);
+    }
+    .auth-warning code {
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.8125rem;
+      background: rgba(255,122,122,0.10); color: var(--bad);
+      padding: 0.05rem 0.3rem; border-radius: 3px;
+    }
+    .auth-warning a { color: var(--bad); text-decoration: underline; }
+    .auth-warning[hidden] { display: none; }
+
+    /* =========================================================
+       i18n: hide non-active language anywhere we use the
+       parallel-lang pattern (matches help.html convention)
+       ========================================================= */
+    body[data-lang="de"] .auth-warning [lang="en"] { display: none; }
+    body[data-lang="en"] .auth-warning [lang="de"] { display: none; }
   </style>
 </head>
-<body data-theme="dark">
+<body data-theme="dark" data-lang="de">
   <script>
-    // Inline pre-paint: apply persisted/system theme before first render
+    // Inline pre-paint: apply persisted/system theme + lang before first render
     (function () {
       try {
         var stored = localStorage.getItem('pullmd-theme');
         var t = stored || (window.matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'dark');
         document.body.setAttribute('data-theme', t);
+        var l = localStorage.getItem('pullmd-lang');
+        if (l !== 'de' && l !== 'en') l = (navigator.language || 'en').toLowerCase().indexOf('de') === 0 ? 'de' : 'en';
+        document.body.setAttribute('data-lang', l);
       } catch (e) {}
     })();
   </script>
+
+  <div id="auth-warning-banner" class="auth-warning" hidden>
+    <span lang="de">⚠️ Die Authentifizierung ist derzeit deaktiviert. Dein <code>PULLMD_AUTH_TOKEN</code> schützt diese Instanz in v2 nicht mehr. Setze <code>PULLMD_AUTH_MODE=single-admin</code> und konfiguriere <code>PULLMD_ADMIN_EMAIL</code> + <code>PULLMD_ADMIN_PASSWORD</code>, um die Authentifizierung wiederherzustellen. Siehe <a href="https://github.com/AeternaLabsHQ/pullmd/blob/main/MIGRATION.md">MIGRATION.md</a>.</span>
+    <span lang="en">⚠️ Authentication is currently disabled. Your <code>PULLMD_AUTH_TOKEN</code> no longer protects this instance in v2. Set <code>PULLMD_AUTH_MODE=single-admin</code> and configure <code>PULLMD_ADMIN_EMAIL</code> + <code>PULLMD_ADMIN_PASSWORD</code> to restore authentication. See <a href="https://github.com/AeternaLabsHQ/pullmd/blob/main/MIGRATION.md">MIGRATION.md</a>.</span>
+  </div>
+
   <div class="container">
 
     <header class="brand">
@@ -1027,6 +1071,48 @@
 
   <script>window.__PULLMD_DISABLE_HISTORY__ = __PULLMD_DISABLE_HISTORY_FLAG__;</script>
   <script>
+    // ---- auth bootstrap: detect auth mode + login state before anything else ----
+    (async function authBootstrap() {
+      let cfg = { authMode: 'disabled', authMisconfigured: false };
+      try {
+        const r = await fetch('/api/config');
+        if (r.ok) cfg = await r.json();
+      } catch (_) { /* offline; fall through */ }
+
+      document.documentElement.dataset.authMode = cfg.authMode;
+
+      // Surface the misconfig banner regardless of mode — it is the
+      // disabled+legacy-token combination that is dangerous.
+      if (cfg.authMisconfigured) {
+        var banner = document.getElementById('auth-warning-banner');
+        if (banner) banner.removeAttribute('hidden');
+      }
+
+      if (cfg.authMode === 'disabled') return;
+
+      let me = null;
+      try {
+        const r = await fetch('/api/me');
+        if (r.ok) me = await r.json();
+      } catch (_) { /* not logged in */ }
+
+      const headerActions = document.querySelector('.brand') || document.body;
+      const slot = document.createElement('div');
+      slot.className = 'auth-slot';
+      slot.style.cssText = 'display:inline-flex; gap:0.5rem; align-items:center; font-size:0.875rem;';
+      if (me) {
+        slot.innerHTML = `
+          <a href="/settings" style="color: var(--fg-muted); text-decoration: none;">${me.email}</a>
+          <form method="POST" action="/logout" style="display:inline">
+            <button type="submit" style="background:transparent; border:1px solid var(--border-strong); color:var(--fg-muted); padding:0.25rem 0.5rem; border-radius:4px; cursor:pointer; font-size:0.75rem;">Log out</button>
+          </form>`;
+      } else {
+        slot.innerHTML = `<a href="/login" style="color: var(--accent); text-decoration: none;">Sign in</a>`;
+      }
+      headerActions.appendChild(slot);
+      document.documentElement.dataset.loggedIn = me ? '1' : '0';
+    })();
+
     // ---- i18n: DE/EN, default from navigator.language, persisted override ----
     (function () {
       var KEY = 'pullmd-lang';
@@ -1151,6 +1237,9 @@
 
       function applyLang() {
         document.documentElement.lang = current;
+        // Mirror onto body so the parallel-lang CSS pattern (used by the
+        // misconfig banner and by help.html) picks up language switches.
+        document.body.setAttribute('data-lang', current);
         // Static text content
         document.querySelectorAll('[data-i18n]').forEach(function (el) {
           el.textContent = t(el.getAttribute('data-i18n'));
@@ -1553,6 +1642,13 @@
       }
 
       async function loadHistory() {
+        if (document.documentElement.dataset.authMode &&
+            document.documentElement.dataset.authMode !== 'disabled' &&
+            document.documentElement.dataset.loggedIn !== '1') {
+          var hs = document.getElementById('history-section');
+          if (hs) hs.style.display = 'none';
+          return; // signed-out: don't call /api/history (it returns 401)
+        }
         try {
           const res = await fetch('/api/history?limit=10');
           if (!res.ok) return;

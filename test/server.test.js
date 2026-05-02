@@ -941,9 +941,9 @@ describe('DISABLE_PUBLIC_HISTORY', () => {
 
   it('exposes the flag via /api/config', async () => {
     const off = await request(createApp({ disablePublicHistory: false }), '/api/config');
-    assert.deepEqual(JSON.parse(off.body), { disablePublicHistory: false });
+    assert.deepEqual(JSON.parse(off.body), { disablePublicHistory: false, authMode: 'disabled', authMisconfigured: false });
     const on = await request(createApp({ disablePublicHistory: true }), '/api/config');
-    assert.deepEqual(JSON.parse(on.body), { disablePublicHistory: true });
+    assert.deepEqual(JSON.parse(on.body), { disablePublicHistory: true, authMode: 'disabled', authMisconfigured: false });
   });
 
   it('reads DISABLE_PUBLIC_HISTORY=true from env when no override given', async () => {
