@@ -13,7 +13,7 @@ describe('cache schema for auth', () => {
 
   it('creates the sessions table', () => {
     const cols = cache.db.prepare("PRAGMA table_info(sessions)").all().map(c => c.name);
-    assert.deepEqual(cols.sort(), ['created_at', 'expires_at', 'token', 'user_id']);
+    assert.deepEqual(cols.sort(), ['created_at', 'expires_at', 'flash_data', 'token', 'user_id']);
   });
 
   it('creates the api_keys table', () => {

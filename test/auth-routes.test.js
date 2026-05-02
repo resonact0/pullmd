@@ -69,6 +69,58 @@ describe('auth routes — multi-user', () => {
     });
   });
 
+  it('POST /login honours a same-origin ?next=/path', async () => {
+    await withApp('multi-user', async (base) => {
+      const r = await fetch(base + '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'email=admin@x.y&password=adminpass1&next=' + encodeURIComponent('/settings'),
+        redirect: 'manual',
+      });
+      assert.equal(r.status, 302);
+      assert.equal(r.headers.get('location'), '/settings');
+    });
+  });
+
+  it('POST /login refuses next=//evil.com (protocol-relative)', async () => {
+    await withApp('multi-user', async (base) => {
+      const r = await fetch(base + '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'email=admin@x.y&password=adminpass1&next=' + encodeURIComponent('//evil.com'),
+        redirect: 'manual',
+      });
+      assert.equal(r.status, 302);
+      assert.match(r.headers.get('location'), /^\/\?login=ok/, 'must fall back to safe default, not redirect off-site');
+    });
+  });
+
+  it('POST /login refuses next=/\\evil.com (backslash bypass)', async () => {
+    await withApp('multi-user', async (base) => {
+      const r = await fetch(base + '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'email=admin@x.y&password=adminpass1&next=' + encodeURIComponent('/\\evil.com'),
+        redirect: 'manual',
+      });
+      assert.equal(r.status, 302);
+      assert.match(r.headers.get('location'), /^\/\?login=ok/, 'browsers normalise \\\\ to /, so this would otherwise leak the user off-site');
+    });
+  });
+
+  it('POST /login refuses next=https://evil.com (absolute URL)', async () => {
+    await withApp('multi-user', async (base) => {
+      const r = await fetch(base + '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'email=admin@x.y&password=adminpass1&next=' + encodeURIComponent('https://evil.com'),
+        redirect: 'manual',
+      });
+      assert.equal(r.status, 302);
+      assert.match(r.headers.get('location'), /^\/\?login=ok/);
+    });
+  });
+
   it('POST /login with wrong password 401s, no cookie', async () => {
     await withApp('multi-user', async (base) => {
       const r = await fetch(base + '/login', {
@@ -175,6 +227,80 @@ describe('auth routes — multi-user', () => {
       const body = await r.json();
       assert.equal(body.email, 'admin@x.y');
       assert.equal(body.is_admin, true);
+    });
+  });
+
+  it('POST /api/keys (browser path) does NOT put the key in the redirect URL', async () => {
+    await withApp('multi-user', async (base, { auth, cache }) => {
+      const adminId = cache.db.prepare("SELECT id FROM users").get().id;
+      const { token } = auth.createSession(adminId);
+      const r = await fetch(base + '/api/keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Cookie': `pullmd_session=${token}`,
+          'Accept': 'text/html',
+        },
+        body: 'label=' + encodeURIComponent('My laptop'),
+        redirect: 'manual',
+      });
+      assert.equal(r.status, 302);
+      const loc = r.headers.get('location');
+      assert.equal(loc, '/settings', 'must redirect to a clean URL — never include the key as a query param');
+      assert.ok(!/pmd_/.test(loc), 'no key body in URL');
+    });
+  });
+
+  it('POST /api/keys flashes the key into the session, GET /settings consumes it once', async () => {
+    await withApp('multi-user', async (base, { auth, cache }) => {
+      const adminId = cache.db.prepare("SELECT id FROM users").get().id;
+      const { token } = auth.createSession(adminId);
+
+      const post = await fetch(base + '/api/keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Cookie': `pullmd_session=${token}`,
+          'Accept': 'text/html',
+        },
+        body: 'label=flashtest',
+        redirect: 'manual',
+      });
+      assert.equal(post.status, 302);
+
+      // First GET /settings shows the freshly-minted key in the banner.
+      const first = await fetch(base + '/settings', {
+        headers: { Cookie: `pullmd_session=${token}`, Accept: 'text/html' },
+      });
+      const firstBody = await first.text();
+      assert.match(firstBody, /pmd_[A-Za-z0-9]{32}/, 'first /settings render must show the new key');
+      assert.match(firstBody, /Save this key now/);
+
+      // Second GET /settings does NOT — flash was consumed.
+      const second = await fetch(base + '/settings', {
+        headers: { Cookie: `pullmd_session=${token}`, Accept: 'text/html' },
+      });
+      const secondBody = await second.text();
+      assert.ok(!/Save this key now/.test(secondBody), 'flash must be cleared after first read');
+    });
+  });
+
+  it('POST /api/keys with Accept: application/json returns the key as JSON', async () => {
+    await withApp('multi-user', async (base, { auth, cache }) => {
+      const adminId = cache.db.prepare("SELECT id FROM users").get().id;
+      const { token } = auth.createSession(adminId);
+      const r = await fetch(base + '/api/keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Cookie': `pullmd_session=${token}`,
+          'Accept': 'application/json',
+        },
+        body: 'label=jsonpath',
+      });
+      assert.equal(r.status, 200);
+      const body = await r.json();
+      assert.match(body.key, /^pmd_[A-Za-z0-9]{32}$/);
     });
   });
 });
