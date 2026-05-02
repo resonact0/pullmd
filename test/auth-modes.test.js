@@ -1,0 +1,108 @@
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
+import { createCache } from '../lib/cache.js';
+import { createAuth } from '../lib/auth.js';
+
+const fastOpts = { argon2Opts: { timeCost: 1, memoryCost: 1024, parallelism: 1 } };
+
+describe('auth modes', () => {
+  it('throws on unknown mode', () => {
+    const cache = createCache(':memory:');
+    assert.throws(() => createAuth({ db: cache.db, mode: 'unknown' }), /Invalid PULLMD_AUTH_MODE/);
+  });
+
+  for (const mode of ['disabled', 'single-admin', 'multi-user']) {
+    it(`accepts mode=${mode}`, () => {
+      const cache = createCache(':memory:');
+      const auth = createAuth({ db: cache.db, mode, env: {} });
+      assert.equal(auth.mode, mode);
+    });
+  }
+
+  it('disabled mode: runMigration is a no-op', async () => {
+    const cache = createCache(':memory:');
+    const auth = createAuth({ db: cache.db, mode: 'disabled', env: {}, ...fastOpts });
+    await auth.runMigration();
+    assert.equal(cache.db.prepare("SELECT COUNT(*) c FROM users").get().c, 0);
+  });
+
+  it('single-admin requires PULLMD_ADMIN_EMAIL + PULLMD_ADMIN_PASSWORD on first run', async () => {
+    const cache = createCache(':memory:');
+    const auth = createAuth({ db: cache.db, mode: 'single-admin', env: {}, ...fastOpts });
+    await assert.rejects(() => auth.runMigration(), /PULLMD_ADMIN_EMAIL/);
+  });
+
+  it('single-admin bootstraps admin user from env on first run', async () => {
+    const cache = createCache(':memory:');
+    const auth = createAuth({
+      db: cache.db, mode: 'single-admin',
+      env: { PULLMD_ADMIN_EMAIL: 'admin@x.y', PULLMD_ADMIN_PASSWORD: 'sekret123' },
+      ...fastOpts,
+    });
+    await auth.runMigration();
+    const u = cache.db.prepare("SELECT id, email, is_admin FROM users").get();
+    assert.equal(u.email, 'admin@x.y');
+    assert.equal(u.is_admin, 1);
+  });
+
+  it('runMigration is idempotent', async () => {
+    const cache = createCache(':memory:');
+    const env = { PULLMD_ADMIN_EMAIL: 'admin@x.y', PULLMD_ADMIN_PASSWORD: 'sekret123' };
+    const auth = createAuth({ db: cache.db, mode: 'single-admin', env, ...fastOpts });
+    await auth.runMigration();
+    await auth.runMigration();
+    await auth.runMigration();
+    assert.equal(cache.db.prepare("SELECT COUNT(*) c FROM users").get().c, 1);
+  });
+
+  it('legacy PULLMD_AUTH_TOKEN gets registered as admin\'s API key', async () => {
+    const cache = createCache(':memory:');
+    const auth = createAuth({
+      db: cache.db, mode: 'single-admin',
+      env: {
+        PULLMD_ADMIN_EMAIL: 'a@b.c',
+        PULLMD_ADMIN_PASSWORD: 'pw1234567',
+        PULLMD_AUTH_TOKEN: 'legacy-token-abc',
+      },
+      ...fastOpts,
+    });
+    await auth.runMigration();
+    const user = auth.lookupLegacyToken('legacy-token-abc');
+    assert.ok(user, 'legacy token should resolve to admin');
+    assert.equal(user.email, 'a@b.c');
+    assert.equal(auth.lookupLegacyToken('wrong-token'), null);
+  });
+
+  it('legacy lookup is disabled in multi-user mode', async () => {
+    const cache = createCache(':memory:');
+    const auth = createAuth({
+      db: cache.db, mode: 'multi-user',
+      env: {
+        PULLMD_ADMIN_EMAIL: 'a@b.c',
+        PULLMD_ADMIN_PASSWORD: 'pw1234567',
+        PULLMD_AUTH_TOKEN: 'legacy-token-abc',
+      },
+      ...fastOpts,
+    });
+    await auth.runMigration();
+    assert.equal(auth.lookupLegacyToken('legacy-token-abc'), null);
+  });
+
+  it('cache-row backfill: existing conversions get user_id = admin.id on first migration', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://pre.com', title: 'Pre', markdown: '# pre', source: 'readability' });
+    const before = cache.db.prepare("SELECT user_id FROM conversions").get();
+    assert.equal(before.user_id, null);
+
+    const auth = createAuth({
+      db: cache.db, mode: 'single-admin',
+      env: { PULLMD_ADMIN_EMAIL: 'a@b.c', PULLMD_ADMIN_PASSWORD: 'pw1234567' },
+      ...fastOpts,
+    });
+    await auth.runMigration();
+
+    const adminId = cache.db.prepare("SELECT id FROM users").get().id;
+    const after = cache.db.prepare("SELECT user_id FROM conversions").get();
+    assert.equal(after.user_id, adminId);
+  });
+});
