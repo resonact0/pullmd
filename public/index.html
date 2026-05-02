@@ -1027,6 +1027,40 @@
 
   <script>window.__PULLMD_DISABLE_HISTORY__ = __PULLMD_DISABLE_HISTORY_FLAG__;</script>
   <script>
+    // ---- auth bootstrap: detect auth mode + login state before anything else ----
+    (async function authBootstrap() {
+      let cfg = { authMode: 'disabled' };
+      try {
+        const r = await fetch('/api/config');
+        if (r.ok) cfg = await r.json();
+      } catch (_) { /* offline; fall through */ }
+
+      document.documentElement.dataset.authMode = cfg.authMode;
+      if (cfg.authMode === 'disabled') return;
+
+      let me = null;
+      try {
+        const r = await fetch('/api/me');
+        if (r.ok) me = await r.json();
+      } catch (_) { /* not logged in */ }
+
+      const headerActions = document.querySelector('.brand') || document.body;
+      const slot = document.createElement('div');
+      slot.className = 'auth-slot';
+      slot.style.cssText = 'display:inline-flex; gap:0.5rem; align-items:center; font-size:0.875rem;';
+      if (me) {
+        slot.innerHTML = `
+          <a href="/settings" style="color: var(--fg-muted); text-decoration: none;">${me.email}</a>
+          <form method="POST" action="/logout" style="display:inline">
+            <button type="submit" style="background:transparent; border:1px solid var(--border-strong); color:var(--fg-muted); padding:0.25rem 0.5rem; border-radius:4px; cursor:pointer; font-size:0.75rem;">Log out</button>
+          </form>`;
+      } else {
+        slot.innerHTML = `<a href="/login" style="color: var(--accent); text-decoration: none;">Sign in</a>`;
+      }
+      headerActions.appendChild(slot);
+      document.documentElement.dataset.loggedIn = me ? '1' : '0';
+    })();
+
     // ---- i18n: DE/EN, default from navigator.language, persisted override ----
     (function () {
       var KEY = 'pullmd-lang';
@@ -1553,6 +1587,13 @@
       }
 
       async function loadHistory() {
+        if (document.documentElement.dataset.authMode &&
+            document.documentElement.dataset.authMode !== 'disabled' &&
+            document.documentElement.dataset.loggedIn !== '1') {
+          var hs = document.getElementById('history-section');
+          if (hs) hs.style.display = 'none';
+          return; // signed-out: don't call /api/history (it returns 401)
+        }
         try {
           const res = await fetch('/api/history?limit=10');
           if (!res.ok) return;
