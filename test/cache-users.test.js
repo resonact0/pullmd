@@ -38,4 +38,36 @@ describe('cache schema for auth', () => {
       /UNIQUE constraint failed: users.email/
     );
   });
+
+  it('CASCADE-deletes child rows when a user is deleted', () => {
+    const r = cache.db.prepare("INSERT INTO users (email, password_hash) VALUES (?, ?)").run('u@x.y', 'h');
+    const userId = r.lastInsertRowid;
+    cache.db.prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, datetime('now', '+1 day'))").run('tok1', userId);
+    cache.db.prepare("INSERT INTO api_keys (user_id, key_hash, key_prefix) VALUES (?, ?, ?)").run(userId, 'h1', 'pmd_a');
+    cache.db.prepare("INSERT INTO user_fetches (user_id, cache_id) VALUES (?, ?)").run(userId, 1);
+
+    cache.db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+
+    assert.equal(cache.db.prepare("SELECT COUNT(*) c FROM sessions").get().c, 0);
+    assert.equal(cache.db.prepare("SELECT COUNT(*) c FROM api_keys").get().c, 0);
+    assert.equal(cache.db.prepare("SELECT COUNT(*) c FROM user_fetches").get().c, 0);
+  });
+
+  it('SETs NULL on conversions.user_id when the owning user is deleted', () => {
+    const r = cache.db.prepare("INSERT INTO users (email, password_hash) VALUES (?, ?)").run('u@x.y', 'h');
+    const userId = r.lastInsertRowid;
+    cache.put({ url: 'https://kept.com', title: 'Kept', markdown: '# k', source: 'readability' });
+    cache.db.prepare("UPDATE conversions SET user_id = ? WHERE url = ?").run(userId, 'https://kept.com');
+
+    cache.db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+
+    const row = cache.db.prepare("SELECT user_id FROM conversions WHERE url = ?").get('https://kept.com');
+    assert.equal(row.user_id, null, 'cache row must survive user deletion with user_id NULL');
+  });
+
+  it('users.is_admin defaults to 0', () => {
+    cache.db.prepare("INSERT INTO users (email, password_hash) VALUES (?, ?)").run('default@x.y', 'h');
+    const u = cache.db.prepare("SELECT is_admin FROM users WHERE email = ?").get('default@x.y');
+    assert.equal(u.is_admin, 0);
+  });
 });
