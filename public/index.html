@@ -870,14 +870,19 @@
        ========================================================= */
     .auth-warning {
       position: sticky; top: 0; z-index: 1000;
-      /* Layer the (translucent) red tint over the opaque page bg so scrolling
-         content can't bleed through when the banner is sticky. */
-      background: linear-gradient(var(--bad-bg), var(--bad-bg)), var(--bg);
+      /* Frosted-glass: strong red wash with backdrop-blur so any scrolling
+         content behind the banner reads as a soft wash, not as text. */
+      background-color: rgba(255, 100, 100, 0.32);
+      backdrop-filter: blur(14px) saturate(1.5);
+      -webkit-backdrop-filter: blur(14px) saturate(1.5);
       color: var(--fg);
       border-bottom: 2px solid var(--bad);
       padding: 0.75rem 1rem;
       font-size: 0.875rem; line-height: 1.5;
       text-align: center;
+    }
+    body[data-theme="paper"] .auth-warning {
+      background-color: rgba(198, 40, 40, 0.22);
     }
     .auth-warning code {
       font-family: 'JetBrains Mono', ui-monospace, monospace;
