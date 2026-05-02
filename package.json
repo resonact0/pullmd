@@ -1,6 +1,6 @@
 {
   "name": "pullmd",
-  "version": "1.2.0",
+  "version": "2.0.0",
   "type": "module",
   "main": "server.js",
   "license": "AGPL-3.0-or-later",
@@ -17,6 +17,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@mozilla/readability": "^0.6.0",
     "archiver": "^7.0.1",
+    "argon2": "^0.44.0",
     "better-sqlite3": "^12.6.2",
     "cheerio": "^1.2.0",
     "express": "^5.2.1",
