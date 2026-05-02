@@ -99,6 +99,33 @@ describe('auth-pages: parallel lang spans', () => {
   });
 });
 
+describe('auth-pages: login env-var hint (single-admin mode)', () => {
+  it('renders the env-var hint in both languages when mode is single-admin', () => {
+    const html = loginPage({ mode: 'single-admin' });
+    assert.match(html, /<span lang="de">[^<]*PULLMD_ADMIN_EMAIL/);
+    assert.match(html, /<span lang="en">[^<]*PULLMD_ADMIN_EMAIL/);
+    assert.match(html, /PULLMD_ADMIN_PASSWORD/);
+    assert.match(html, /Environment-Konfiguration/);
+    assert.match(html, /from your environment/);
+  });
+
+  it('does NOT render the hint in multi-user mode', () => {
+    const html = loginPage({ mode: 'multi-user' });
+    assert.doesNotMatch(html, /PULLMD_ADMIN_EMAIL/);
+  });
+
+  it('does NOT render the hint when mode is omitted (back-compat)', () => {
+    const html = loginPage({});
+    assert.doesNotMatch(html, /PULLMD_ADMIN_EMAIL/);
+  });
+
+  it('hint is styled muted (env-hint class on a muted block)', () => {
+    const html = loginPage({ mode: 'single-admin' });
+    // The hint sits inside a .muted block (existing helper class). Allow either order.
+    assert.match(html, /class="muted env-hint"|class="env-hint muted"/);
+  });
+});
+
 describe('PWA index.html: misconfig banner DOM', () => {
   const html = readFileSync(join(ROOT, 'public/index.html'), 'utf8');
 
