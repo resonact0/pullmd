@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCache } from '../lib/cache.js';
-import { createAuth, detectAuthMisconfig } from '../lib/auth.js';
+import { createAuth, detectAuthMisconfig, formatBootstrapError } from '../lib/auth.js';
 
 const fastOpts = { timeCost: 1, memoryCost: 1024, parallelism: 1 };
 
@@ -85,5 +85,24 @@ describe('createAuth: isMisconfigured + console warning', () => {
     );
     assert.equal(auth.isMisconfigured, false);
     assert.equal(lines.length, 0);
+  });
+});
+
+describe('formatBootstrapError', () => {
+  it('formats single-admin bootstrap error with var names and bar', () => {
+    const out = formatBootstrapError('single-admin');
+    assert.match(out, /={20,}/);
+    assert.match(out, /PULLMD_AUTH_MODE=single-admin requires bootstrap credentials/);
+    assert.match(out, /PULLMD_ADMIN_EMAIL/);
+    assert.match(out, /PULLMD_ADMIN_PASSWORD/);
+    assert.match(out, /min 8 characters/);
+    assert.match(out, /MIGRATION\.md/);
+  });
+
+  it('formats multi-user bootstrap error with the same shape', () => {
+    const out = formatBootstrapError('multi-user');
+    assert.match(out, /PULLMD_AUTH_MODE=multi-user requires bootstrap credentials/);
+    assert.match(out, /PULLMD_ADMIN_EMAIL/);
+    assert.match(out, /PULLMD_ADMIN_PASSWORD/);
   });
 });

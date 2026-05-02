@@ -2,7 +2,7 @@ import express from 'express';
 import { extractPost, normalizeRedditUrl } from './lib/reddit.js';
 import { extractWeb } from './lib/web.js';
 import { createCache } from './lib/cache.js';
-import { createAuth } from './lib/auth.js';
+import { createAuth, formatBootstrapError } from './lib/auth.js';
 import { qualityScore } from './lib/scoring.js';
 import { buildFrontmatter } from './lib/frontmatter.js';
 import { mcpHandler } from './lib/mcp.js';
@@ -576,7 +576,15 @@ if (isDirectRun || process.argv[1]?.endsWith('server.js')) {
   const cache = createCache(process.env.CACHE_DB || './data/cache.db');
   const mode = process.env.PULLMD_AUTH_MODE || 'disabled';
   const auth = createAuth({ db: cache.db, mode, env: process.env });
-  await auth.runMigration();
+  try {
+    await auth.runMigration();
+  } catch (err) {
+    if (err && /PULLMD_ADMIN_EMAIL/.test(err.message || '')) {
+      console.error(formatBootstrapError(mode));
+      process.exit(1);
+    }
+    throw err;
+  }
   const app = createApp({ cache, auth });
   app.listen(port, () => {
     console.log(`PullMD running on http://localhost:${port} (auth: ${mode})`);
