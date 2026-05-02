@@ -1325,6 +1325,11 @@
         rawMarkdown = text;
         renderMarkdownWithImages(resultEl, text);
         resultContainer.classList.add('visible');
+        // Bring the result into view when triggered from a list entry deeper
+        // down the page (history / archive). No-op when already scrolled top.
+        if (window.scrollY > 0) {
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
         copyBtn.querySelector('.label').textContent = t('copy');
         copyBtn.classList.remove('copied');
         if (source) {
