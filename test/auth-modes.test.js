@@ -105,4 +105,45 @@ describe('auth modes', () => {
     const after = cache.db.prepare("SELECT user_id FROM conversions").get();
     assert.equal(after.user_id, adminId);
   });
+
+  it('user_fetches backfill: existing conversions get a user_fetches row for admin', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# a', source: 'readability' });
+    cache.put({ url: 'https://b.com', title: 'B', markdown: '# b', source: 'readability' });
+    cache.put({ url: 'https://c.com', title: 'C', markdown: '# c', source: 'readability' });
+    assert.equal(cache.db.prepare("SELECT COUNT(*) c FROM user_fetches").get().c, 0);
+
+    const auth = createAuth({
+      db: cache.db, mode: 'single-admin',
+      env: { PULLMD_ADMIN_EMAIL: 'a@b.c', PULLMD_ADMIN_PASSWORD: 'pw1234567' },
+      ...fastOpts,
+    });
+    await auth.runMigration();
+
+    const adminId = cache.db.prepare("SELECT id FROM users").get().id;
+    const fetches = cache.db.prepare(
+      "SELECT user_id, cache_id, fetched_at FROM user_fetches ORDER BY cache_id"
+    ).all();
+    assert.equal(fetches.length, 3);
+    for (const f of fetches) {
+      assert.equal(f.user_id, adminId);
+      assert.ok(f.fetched_at, 'fetched_at copied from conversions.created_at');
+    }
+  });
+
+  it('user_fetches backfill is idempotent across repeated migrations', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://a.com', title: 'A', markdown: '# a', source: 'readability' });
+    cache.put({ url: 'https://b.com', title: 'B', markdown: '# b', source: 'readability' });
+
+    const auth = createAuth({
+      db: cache.db, mode: 'single-admin',
+      env: { PULLMD_ADMIN_EMAIL: 'a@b.c', PULLMD_ADMIN_PASSWORD: 'pw1234567' },
+      ...fastOpts,
+    });
+    await auth.runMigration();
+    await auth.runMigration();
+    await auth.runMigration();
+    assert.equal(cache.db.prepare("SELECT COUNT(*) c FROM user_fetches").get().c, 2);
+  });
 });
