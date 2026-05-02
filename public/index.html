@@ -870,7 +870,10 @@
        ========================================================= */
     .auth-warning {
       position: sticky; top: 0; z-index: 1000;
-      background: var(--bad-bg); color: var(--fg);
+      /* Layer the (translucent) red tint over the opaque page bg so scrolling
+         content can't bleed through when the banner is sticky. */
+      background: linear-gradient(var(--bad-bg), var(--bad-bg)), var(--bg);
+      color: var(--fg);
       border-bottom: 2px solid var(--bad);
       padding: 0.75rem 1rem;
       font-size: 0.875rem; line-height: 1.5;
