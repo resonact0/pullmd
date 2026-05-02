@@ -510,7 +510,11 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api/config', (req, res) => {
-    res.json({ disablePublicHistory, authMode: auth ? auth.mode : 'disabled' });
+    res.json({
+      disablePublicHistory,
+      authMode: auth ? auth.mode : 'disabled',
+      authMisconfigured: !!auth?.isMisconfigured,
+    });
   });
 
   app.get('/api/history', gate, (req, res) => {

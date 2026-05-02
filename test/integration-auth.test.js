@@ -118,6 +118,28 @@ describe('integration: auth gating in createApp', () => {
       assert.equal(body.authMode, 'multi-user');
     });
   });
+
+  it('GET /api/config exposes authMisconfigured=false in normal modes', async () => {
+    await withApp('multi-user', async (base) => {
+      const body = await (await fetch(base + '/api/config')).json();
+      assert.equal(body.authMisconfigured, false);
+    });
+    await withApp('single-admin', async (base) => {
+      const body = await (await fetch(base + '/api/config')).json();
+      assert.equal(body.authMisconfigured, false);
+    });
+    await withApp('disabled', async (base) => {
+      const body = await (await fetch(base + '/api/config')).json();
+      assert.equal(body.authMisconfigured, false);
+    });
+  });
+
+  it('GET /api/config exposes authMisconfigured=true when token+disabled', async () => {
+    await withApp('disabled', async (base) => {
+      const body = await (await fetch(base + '/api/config')).json();
+      assert.equal(body.authMisconfigured, true);
+    }, { PULLMD_AUTH_TOKEN: 'leftover-v1-token' });
+  });
 });
 
 describe('integration: admin-only cache deletion', () => {
