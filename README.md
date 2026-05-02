@@ -135,10 +135,21 @@ All variables go in `.env` (copy from `.env.example`):
 | `REDDIT_CLIENT_SECRET` | no       |                                                                                                      |
 | `REDDIT_USER_AGENT`    | no       | Reddit requires a unique UA. Default: `PullMD/1.0 (URL-to-Markdown service)`.                       |
 | `DISABLE_PUBLIC_HISTORY` | no     | When `true`, hides the global recent-conversions list and archive (`/api/history` + `/api/archive` return 403, frontend hides the section). `/s/:id` share links keep working. Default: `false`. |
+| `PULLMD_USER_AGENT`    | no       | Pin a single outbound User-Agent for every web fetch. Disables rotation. Useful for CI or when one specific UA is known to work. |
+| `PULLMD_UA_FEED_URL`   | no       | URL of a JSON feed of current real-world UAs. Default: [WinFuture23/real-world-user-agents](https://github.com/WinFuture23/real-world-user-agents). Set to an empty string to disable live refresh and rely on the built-in seed pool. |
 
 `PUBLIC_URL` matters for self-hosting: the help page and downloadable
 skill embed it as the canonical endpoint. Set it correctly and your
 users get a copy-paste setup that points at *your* instance.
+
+PullMD rotates its outbound User-Agent for the web fetch path from a
+pool of current desktop browsers, refreshed every 48 hours from a
+[live feed of real-world UAs](https://github.com/WinFuture23/real-world-user-agents)
+maintained by [@WinFuture23](https://github.com/WinFuture23). A built-in
+seed pool ensures rotation works even when the feed is unreachable. Set
+`PULLMD_USER_AGENT` to pin a single UA, or `PULLMD_UA_FEED_URL` to point
+at your own feed. The Reddit path keeps its dedicated `REDDIT_USER_AGENT`
+because Reddit's API expects a stable, identifying UA.
 
 `DISABLE_PUBLIC_HISTORY=true` is the privacy switch for shared
 instances (multi-tenant VPS, office deployments). Conversions still

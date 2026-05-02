@@ -11,9 +11,12 @@ import importlib.metadata
 
 logging.basicConfig(level=logging.INFO)
 
+# Last updated: 2026-05-02
+# Source: https://github.com/WinFuture23/real-world-user-agents
+# Update at each release alongside lib/user-agent.js seed pool.
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
 )
 MAX_CONCURRENCY = 4
 NAV_TIMEOUT_MS = 15_000
