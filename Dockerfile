@@ -27,7 +27,7 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 
-RUN mkdir -p /app/data && chown -R app:app /app
+RUN mkdir -p /data && chown -R app:app /app /data
 
 USER app
 

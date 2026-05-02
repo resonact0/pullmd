@@ -13,6 +13,7 @@ services:
       - REDDIT_CLIENT_SECRET=${REDDIT_CLIENT_SECRET:-}
       - REDDIT_USER_AGENT=${REDDIT_USER_AGENT:-}
       - DISABLE_PUBLIC_HISTORY=${DISABLE_PUBLIC_HISTORY:-false}
+      - CACHE_DB=/data/cache.db
     volumes:
       - ./data:/data
     networks:
