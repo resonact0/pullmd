@@ -120,6 +120,69 @@ describe('integration: auth gating in createApp', () => {
   });
 });
 
+describe('integration: admin-only cache deletion', () => {
+  it('multi-user: non-admin cannot DELETE /api/cache/:id', async () => {
+    await withApp('multi-user', async (base, { auth, cache }) => {
+      const u = await auth.createUser({ email: 'reg@x.y', password: 'pw1234567' });
+      const { fullKey } = auth.createApiKey(u.id, 'k');
+      const adminId = cache.db.prepare("SELECT id FROM users WHERE is_admin = 1").get().id;
+      const shareId = cache.put({
+        url: 'https://admin-only.com', title: 'A', markdown: '# A',
+        source: 'readability', client: 'api', user_id: adminId,
+      });
+      const id = cache.db.prepare("SELECT id FROM conversions WHERE url = ?").get('https://admin-only.com').id;
+      const r = await fetch(base + '/api/cache/' + id, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${fullKey}` },
+      });
+      assert.equal(r.status, 403);
+      // Cache row must still exist.
+      assert.ok(cache.db.prepare("SELECT 1 FROM conversions WHERE id = ?").get(id));
+    });
+  });
+
+  it('multi-user: non-admin cannot DELETE /api/cache (wipe all)', async () => {
+    await withApp('multi-user', async (base, { auth }) => {
+      const u = await auth.createUser({ email: 'reg2@x.y', password: 'pw1234567' });
+      const { fullKey } = auth.createApiKey(u.id, 'k');
+      const r = await fetch(base + '/api/cache', {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${fullKey}` },
+      });
+      assert.equal(r.status, 403);
+    });
+  });
+
+  it('multi-user: admin CAN DELETE /api/cache/:id', async () => {
+    await withApp('multi-user', async (base, { auth, cache }) => {
+      const adminId = cache.db.prepare("SELECT id FROM users WHERE is_admin = 1").get().id;
+      const { fullKey } = auth.createApiKey(adminId, 'admin-k');
+      cache.put({
+        url: 'https://drop.com', title: 'D', markdown: '# D',
+        source: 'readability', client: 'api', user_id: adminId,
+      });
+      const id = cache.db.prepare("SELECT id FROM conversions WHERE url = ?").get('https://drop.com').id;
+      const r = await fetch(base + '/api/cache/' + id, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${fullKey}` },
+      });
+      assert.equal(r.status, 200);
+    });
+  });
+
+  it('disabled mode: anyone can DELETE /api/cache/:id (v1 behaviour)', async () => {
+    await withApp('disabled', async (base, { cache }) => {
+      cache.put({
+        url: 'https://drop.com', title: 'D', markdown: '# D',
+        source: 'readability', client: 'api',
+      });
+      const id = cache.db.prepare("SELECT id FROM conversions WHERE url = ?").get('https://drop.com').id;
+      const r = await fetch(base + '/api/cache/' + id, { method: 'DELETE' });
+      assert.equal(r.status, 200);
+    });
+  });
+});
+
 describe('integration: per-user history', () => {
   it('user only sees their own fetches in /api/history', async () => {
     await withApp('multi-user', async (base, { auth, cache }) => {

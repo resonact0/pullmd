@@ -61,6 +61,15 @@ export function createApp(overrides = {}) {
 
   const gate = auth ? auth.requireAuth() : (req, res, next) => next();
 
+  // Cache deletes touch the global URL-deduped store — they affect every
+  // user's history, not just the caller's. Restrict to admin in any
+  // non-disabled mode. In disabled mode, anyone can call (v1 behaviour).
+  const adminOnly = (req, res, next) => {
+    if (!auth || auth.mode === 'disabled') return next();
+    if (req.user?.is_admin) return next();
+    return res.status(403).json({ error: 'Admin required' });
+  };
+
   // Templated help page + skill zip (PUBLIC_URL substitution).
   // Must come BEFORE express.static so they win over the raw files in /public.
   app.get(['/help', '/help.html'], (req, res) => {
@@ -533,7 +542,7 @@ export function createApp(overrides = {}) {
     res.json(cache.historyPage(limit, offset));
   });
 
-  app.delete('/api/cache/:id', gate, (req, res) => {
+  app.delete('/api/cache/:id', gate, adminOnly, (req, res) => {
     if (!cache) {
       return res.status(404).json({ error: 'Cache not available' });
     }
@@ -546,7 +555,7 @@ export function createApp(overrides = {}) {
     res.json({ ok: true, id });
   });
 
-  app.delete('/api/cache', gate, (req, res) => {
+  app.delete('/api/cache', gate, adminOnly, (req, res) => {
     if (!cache) {
       return res.status(404).json({ error: 'Cache not available' });
     }
