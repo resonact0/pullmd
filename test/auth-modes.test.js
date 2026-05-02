@@ -32,6 +32,15 @@ describe('auth modes', () => {
     await assert.rejects(() => auth.runMigration(), /PULLMD_ADMIN_EMAIL/);
   });
 
+  it('runMigration: missing-creds error carries err.code = ERR_BOOTSTRAP_MISSING_CREDENTIALS', async () => {
+    const cache = createCache(':memory:');
+    const auth = createAuth({ db: cache.db, mode: 'single-admin', env: {}, ...fastOpts });
+    let caught;
+    try { await auth.runMigration(); } catch (e) { caught = e; }
+    assert.ok(caught, 'runMigration should throw');
+    assert.equal(caught.code, 'ERR_BOOTSTRAP_MISSING_CREDENTIALS');
+  });
+
   it('single-admin bootstraps admin user from env on first run', async () => {
     const cache = createCache(':memory:');
     const auth = createAuth({

@@ -579,7 +579,7 @@ if (isDirectRun || process.argv[1]?.endsWith('server.js')) {
   try {
     await auth.runMigration();
   } catch (err) {
-    if (err && /PULLMD_ADMIN_EMAIL/.test(err.message || '')) {
+    if (err && err.code === 'ERR_BOOTSTRAP_MISSING_CREDENTIALS') {
       console.error(formatBootstrapError(mode));
       process.exit(1);
     }
