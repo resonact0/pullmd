@@ -119,6 +119,11 @@ describe('auth-pages: login env-var hint (single-admin mode)', () => {
     assert.doesNotMatch(html, /PULLMD_ADMIN_EMAIL/);
   });
 
+  it('does NOT render the hint for an unrecognised mode value', () => {
+    const html = loginPage({ mode: 'foo' });
+    assert.doesNotMatch(html, /PULLMD_ADMIN_EMAIL/);
+  });
+
   it('hint is styled muted (env-hint class on a muted block)', () => {
     const html = loginPage({ mode: 'single-admin' });
     // The hint sits inside a .muted block (existing helper class). Allow either order.
