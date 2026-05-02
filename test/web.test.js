@@ -93,6 +93,81 @@ describe('extractWeb - Readability fallback', () => {
   });
 });
 
+describe('extractWeb - charset detection (#8)', () => {
+  // Body padded with enough Latin-1 prose so Readability picks the article
+  // up as substantial content (>200 chars). The relevant words (für, Rätsel,
+  // über) appear in the headline.
+  const ger = (charset) => `<!DOCTYPE html><html lang="de"><head><meta charset="${charset}"><title>Test</title></head><body><article><h1>Forscher finden den wahren Grund für das Aussterben der Neandertaler</h1><p>Das Aussterben der Neandertaler gibt der Wissenschaft seit Langem Rätsel auf. Neue Forschungen liefern überraschende Einsichten über das Überleben in Europa und zeigen, dass die Population stärker betroffen war als bisher angenommen. Die Studie liefert Hinweise auf entscheidende Faktoren für den Niedergang.</p></article></body></html>`;
+
+  function bytesResponse(buffer, contentType) {
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? contentType : null) },
+      arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength),
+      // .text() intentionally returns mojibake to prove the fix uses arrayBuffer
+      text: async () => buffer.toString('utf-8'),
+    };
+  }
+
+  it('decodes ISO-8859-1 pages without charset header (winfuture.de case)', async () => {
+    const html = ger('iso-8859-1');
+    const buf = Buffer.from(html, 'latin1'); // raw Latin-1 bytes
+    const result = await extractWeb('https://example.com/de', {
+      fetch: async () => bytesResponse(buf, 'text/html'),
+    });
+    assert.ok(result.markdown.includes('für'), 'für must survive (was f�r before fix)');
+    assert.ok(result.markdown.includes('Rätsel'), 'Rätsel must survive (was R�tsel before fix)');
+    assert.ok(result.markdown.includes('über'), 'über must survive (was �ber before fix)');
+    assert.ok(!result.markdown.includes('�'), 'no replacement char in output');
+  });
+
+  it('decodes Windows-1252 pages with smart quotes and em-dash', async () => {
+    // 0x93 = „"" curly opening, 0x94 = "" curly closing, 0x97 = — em-dash
+    const html = `<!DOCTYPE html><html><head><meta http-equiv="Content-Type" content="text/html; charset=windows-1252"><title>T</title></head><body><article><h1>Headline</h1><p>This is a test \x93smart quote\x94 \x97 with em-dash. It has enough body text to clear the Readability minimum threshold so the extractor commits to this content rather than falling back to the raw page body. Curly punctuation is the canonical Windows-1252 tell.</p></article></body></html>`;
+    const buf = Buffer.from(html, 'latin1');
+    const result = await extractWeb('https://example.com/win1252', {
+      fetch: async () => bytesResponse(buf, 'text/html'),
+    });
+    assert.ok(result.markdown.includes('“smart quote”'), 'curly quotes must decode correctly');
+    assert.ok(result.markdown.includes('—'), 'em-dash must decode correctly');
+    assert.ok(!result.markdown.includes('�'), 'no replacement char in output');
+  });
+
+  it('respects charset= in Content-Type header over <meta>', async () => {
+    // Document declares utf-8 in <meta> but server says iso-8859-1 — header wins.
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>T</title></head><body><article><h1>Café Pâtisserie Belgique</h1><p>Header-declared charset must take precedence over the in-document meta tag. This paragraph exists to give Readability enough body weight that it commits to the article instead of falling back to the raw page.</p></article></body></html>`;
+    const buf = Buffer.from(html, 'latin1');
+    const result = await extractWeb('https://example.com/fr', {
+      fetch: async () => bytesResponse(buf, 'text/html; charset=iso-8859-1'),
+    });
+    assert.ok(result.markdown.includes('Café'), 'header charset wins → Café decoded as Latin-1');
+    assert.ok(result.markdown.includes('Pâtisserie'));
+  });
+
+  it('keeps UTF-8 pages working (regression guard)', async () => {
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>T</title></head><body><article><h1>Über schöne Wörter</h1><p>Standardfall: UTF-8 Bytes mit deutschen Umlauten, weiterhin korrekt dekodiert wie zuvor. Der Absatz ist lang genug, damit Readability ihn als Hauptinhalt erkennt und nicht auf die Roh-HTML-Variante zurückfällt — Standard-Pfad bleibt unangetastet.</p></article></body></html>`;
+    const buf = Buffer.from(html, 'utf-8');
+    const result = await extractWeb('https://example.com/utf8', {
+      fetch: async () => bytesResponse(buf, 'text/html'),
+    });
+    assert.ok(result.markdown.includes('Über'));
+    assert.ok(result.markdown.includes('schöne'));
+    assert.ok(result.markdown.includes('Wörter'));
+    assert.ok(!result.markdown.includes('�'));
+  });
+
+  it('honors UTF-8 BOM when no header or meta is present', async () => {
+    const html = `<!DOCTYPE html><html><head><title>T</title></head><body><article><h1>München Wörter</h1><p>Kein expliziter Charset, weder im Header noch im Meta-Tag — die UTF-8-BOM am Anfang muss greifen. Der Absatz ist lang genug für Readability, damit der Extractor diesen Text als Hauptinhalt nimmt und nicht auf die Roh-HTML-Variante zurückfällt.</p></article></body></html>`;
+    const buf = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(html, 'utf-8')]);
+    const result = await extractWeb('https://example.com/bom', {
+      fetch: async () => bytesResponse(buf, 'text/html'),
+    });
+    assert.ok(result.markdown.includes('München'));
+    assert.ok(!result.markdown.includes('�'));
+  });
+});
+
 describe('extractWeb - error handling', () => {
   it('throws when page cannot be fetched', async () => {
     const fetcher = mockFetch({
