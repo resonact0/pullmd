@@ -2,6 +2,7 @@ import express from 'express';
 import { extractPost, normalizeRedditUrl } from './lib/reddit.js';
 import { extractWeb } from './lib/web.js';
 import { createCache } from './lib/cache.js';
+import { createAuth } from './lib/auth.js';
 import { qualityScore } from './lib/scoring.js';
 import { buildFrontmatter } from './lib/frontmatter.js';
 import { mcpHandler } from './lib/mcp.js';
@@ -55,7 +56,10 @@ export function createApp(overrides = {}) {
   const extract = overrides.extractPost || extractPost;
   const extractWebFn = overrides.extractWeb || extractWeb;
   const cache = overrides.cache || null;
+  const auth = overrides.auth || null;
   const disablePublicHistory = overrides.disablePublicHistory ?? readDisablePublicHistoryEnv();
+
+  const gate = auth ? auth.requireAuth() : (req, res, next) => next();
 
   // Templated help page + skill zip (PUBLIC_URL substitution).
   // Must come BEFORE express.static so they win over the raw files in /public.
@@ -85,6 +89,11 @@ export function createApp(overrides = {}) {
 
   app.use(express.static('public', { extensions: ['html'] }));
 
+  if (auth) {
+    app.use(auth.middleware());
+    auth.mountAuthRoutes(app);
+  }
+
   // MCP endpoint (stateless Streamable-HTTP transport).
   // Each request gets a fresh MCP server + transport bound to the same deps.
   const mcp = mcpHandler({
@@ -95,9 +104,9 @@ export function createApp(overrides = {}) {
     buildFrontmatter,
     isRedditUrl,
   });
-  app.post('/mcp', express.json({ limit: '1mb' }), mcp);
-  app.get('/mcp', mcp);
-  app.delete('/mcp', mcp);
+  app.post('/mcp', gate, express.json({ limit: '1mb' }), mcp);
+  app.get('/mcp', gate, mcp);
+  app.delete('/mcp', gate, mcp);
 
   app.get('/share', (req, res) => {
     let link = req.query.link || req.query.url || '';
@@ -128,6 +137,7 @@ export function createApp(overrides = {}) {
         markdown: baseMd,
         source: 'reddit',
         client,
+        user_id: null,
       });
       return baseMd;
     }
@@ -138,6 +148,7 @@ export function createApp(overrides = {}) {
       markdown: result.markdown,
       source: result.source,
       client,
+      user_id: null,
     });
     return result.markdown;
   }
@@ -175,7 +186,7 @@ export function createApp(overrides = {}) {
     return res.send(markdown);
   });
 
-  app.get('/api', async (req, res) => {
+  app.get('/api', gate, async (req, res) => {
     const { url, comments, comment_depth, comment_limit, format, nocache, frontmatter, lang, render, extractor } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
     const reqLang = lang === 'en' ? 'en' : 'de';
@@ -251,7 +262,7 @@ export function createApp(overrides = {}) {
         let shareId = null;
         const titleMatch = baseMd.match(/^#\s+(.+)$/m);
         if (cache) {
-          shareId = cache.put({ url, title: titleMatch?.[1] || 'Reddit Post', markdown: baseMd, source: 'reddit', client });
+          shareId = cache.put({ url, title: titleMatch?.[1] || 'Reddit Post', markdown: baseMd, source: 'reddit', client, user_id: req.user?.id ?? null });
         }
 
         const quality = qualityScore(baseMd);
@@ -314,7 +325,7 @@ export function createApp(overrides = {}) {
 
       let shareId = null;
       if (cache) {
-        shareId = cache.put({ url, title: result.title, markdown: result.markdown, source: result.source, client });
+        shareId = cache.put({ url, title: result.title, markdown: result.markdown, source: result.source, client, user_id: req.user?.id ?? null });
       }
 
       const fm = wantFrontmatter
@@ -355,7 +366,7 @@ export function createApp(overrides = {}) {
     }
   });
 
-  app.get('/api/stream', async (req, res) => {
+  app.get('/api/stream', gate, async (req, res) => {
     const { url, comments, comment_depth, comment_limit, frontmatter, lang, nocache, render, extractor } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
     const reqLang = lang === 'en' ? 'en' : 'de';
@@ -431,7 +442,7 @@ export function createApp(overrides = {}) {
         const titleMatch = baseMd.match(/^#\s+(.+)$/m);
         let shareId = null;
         if (cache) {
-          shareId = cache.put({ url, title: titleMatch?.[1] || 'Reddit Post', markdown: baseMd, source: 'reddit', client });
+          shareId = cache.put({ url, title: titleMatch?.[1] || 'Reddit Post', markdown: baseMd, source: 'reddit', client, user_id: req.user?.id ?? null });
         }
         const quality = qualityScore(baseMd);
         const fm = wantFrontmatter
@@ -453,7 +464,7 @@ export function createApp(overrides = {}) {
 
       let shareId = null;
       if (cache) {
-        shareId = cache.put({ url, title: result.title, markdown: result.markdown, source: result.source, client });
+        shareId = cache.put({ url, title: result.title, markdown: result.markdown, source: result.source, client, user_id: req.user?.id ?? null });
       }
 
       const fm = wantFrontmatter
@@ -490,10 +501,10 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api/config', (req, res) => {
-    res.json({ disablePublicHistory });
+    res.json({ disablePublicHistory, authMode: auth ? auth.mode : 'disabled' });
   });
 
-  app.get('/api/history', (req, res) => {
+  app.get('/api/history', gate, (req, res) => {
     if (disablePublicHistory) {
       return res.status(403).json({ error: 'Public history is disabled on this instance.' });
     }
@@ -504,7 +515,7 @@ export function createApp(overrides = {}) {
     res.json(cache.history(limit));
   });
 
-  app.get('/api/archive', (req, res) => {
+  app.get('/api/archive', gate, (req, res) => {
     if (disablePublicHistory) {
       return res.status(403).json({ error: 'Public history is disabled on this instance.' });
     }
@@ -516,7 +527,7 @@ export function createApp(overrides = {}) {
     res.json(cache.historyPage(limit, offset));
   });
 
-  app.delete('/api/cache/:id', (req, res) => {
+  app.delete('/api/cache/:id', gate, (req, res) => {
     if (!cache) {
       return res.status(404).json({ error: 'Cache not available' });
     }
@@ -529,7 +540,7 @@ export function createApp(overrides = {}) {
     res.json({ ok: true, id });
   });
 
-  app.delete('/api/cache', (req, res) => {
+  app.delete('/api/cache', gate, (req, res) => {
     if (!cache) {
       return res.status(404).json({ error: 'Cache not available' });
     }
@@ -544,8 +555,11 @@ const isDirectRun = process.argv[1] && import.meta.url.endsWith(process.argv[1].
 if (isDirectRun || process.argv[1]?.endsWith('server.js')) {
   const port = process.env.PORT || 3000;
   const cache = createCache(process.env.CACHE_DB || './data/cache.db');
-  const app = createApp({ cache });
+  const mode = process.env.PULLMD_AUTH_MODE || 'disabled';
+  const auth = createAuth({ db: cache.db, mode, env: process.env });
+  await auth.runMigration();
+  const app = createApp({ cache, auth });
   app.listen(port, () => {
-    console.log(`PullMD running on http://localhost:${port}`);
+    console.log(`PullMD running on http://localhost:${port} (auth: ${mode})`);
   });
 }
