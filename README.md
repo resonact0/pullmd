@@ -137,6 +137,10 @@ All variables go in `.env` (copy from `.env.example`):
 | `DISABLE_PUBLIC_HISTORY` | no     | When `true`, hides the global recent-conversions list and archive (`/api/history` + `/api/archive` return 403, frontend hides the section). `/s/:id` share links keep working. Default: `false`. |
 | `PULLMD_USER_AGENT`    | no       | Pin a single outbound User-Agent for every web fetch. Disables rotation. Useful for CI or when one specific UA is known to work. |
 | `PULLMD_UA_FEED_URL`   | no       | URL of a JSON feed of current real-world UAs. Default: [WinFuture23/real-world-user-agents](https://github.com/WinFuture23/real-world-user-agents). Set to an empty string to disable live refresh and rely on the built-in seed pool. |
+| `PULLMD_AUTH_MODE`     | no       | `disabled` (default) / `single-admin` / `multi-user`. See "Authentication" below.                   |
+| `PULLMD_ADMIN_EMAIL`   | required when AUTH_MODE != disabled, on first startup | Bootstrap email for the first admin user.                            |
+| `PULLMD_ADMIN_PASSWORD` | required when AUTH_MODE != disabled, on first startup | Bootstrap password (min 8 chars).                                    |
+| `PULLMD_AUTH_TOKEN`    | no       | Legacy bearer token compat (single-admin mode only, deprecated).                                    |
 
 `PUBLIC_URL` matters for self-hosting: the help page and downloadable
 skill embed it as the canonical endpoint. Set it correctly and your
@@ -157,6 +161,47 @@ get cached and assigned share IDs; users just can't see what *other*
 users have fetched. Anyone with a known `/s/:id` link still gets
 their markdown back. Use this as a stopgap until per-user scoping
 lands.
+
+---
+
+## Authentication (v2.0+)
+
+PullMD ships with three auth modes. Pick one with `PULLMD_AUTH_MODE`:
+
+| Mode           | Behavior                                                                    |
+| -------------- | --------------------------------------------------------------------------- |
+| `disabled`     | Default. No auth, everything open. Existing v1.x behavior.                  |
+| `single-admin` | One user, credentials from env vars. No self-signup. For homelab.           |
+| `multi-user`   | Self-signup at `/signup`, login at `/login`, per-user data isolation.       |
+
+In `single-admin` and `multi-user` modes, `PULLMD_ADMIN_EMAIL` + `PULLMD_ADMIN_PASSWORD` bootstrap the first admin user on first startup. After that, changing these env vars does **not** change the password — use the admin CLI:
+
+```bash
+docker compose exec pullmd node scripts/admin.js reset-password you@example.com
+```
+
+### Auth boundary
+
+| Endpoint                                                         | Auth required (when mode != disabled) |
+| ---------------------------------------------------------------- | :-----------------------------------: |
+| `/`, `/help`, static assets, `/web-reader.zip`                   |                  no                  |
+| `/login`, `/signup`, `/api/me` (auth surface)                    |                  no                  |
+| `/s/:id` (share links)                                           |                  no                  |
+| `/api`, `/api/stream`                                            |                 yes                  |
+| `/mcp`                                                           |                 yes                  |
+| `/api/history`, `/api/archive`                                   |                 yes                  |
+| `/api/cache/:id`, `DELETE /api/cache`                            |                 yes                  |
+| `/api/stats`, `/api/storage`, `/api/config` (aggregate)          |                  no                  |
+
+### Authentication paths
+
+1. **Session cookies** — `POST /login` sets `pullmd_session` (`HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS, 7-day TTL with sliding expiry). The PWA uses this automatically.
+2. **API keys** — generate at `/settings`, send via `Authorization: Bearer pmd_<32-char-base62>`. Stored as SHA-256 hashes; only shown once at creation.
+3. **Legacy `PULLMD_AUTH_TOKEN`** — deprecated. `single-admin` mode only. Maps to admin user. Kept for migration compatibility, removed in v3.0.
+
+### Migration from v1.x
+
+See `MIGRATION.md` for the full upgrade checklist. The TL;DR: leave `PULLMD_AUTH_MODE` unset and v2.0 behaves exactly like v1.x.
 
 ---
 
@@ -234,17 +279,16 @@ claude mcp add --transport http pullmd ${PULLMD_URL}/mcp
 Once registered, the three tools surface natively in the agent — no prompt
 instructions needed, the LLM picks them up via their schema descriptions.
 
-### MCP client compatibility & auth
+### MCP client compatibility (updated for v2.0)
 
-PullMD's MCP endpoint works with multiple Claude clients, but each client
-supports auth differently:
+| Client          | Bearer (`Authorization: Bearer pmd_...`) | OAuth | Notes                                  |
+| --------------- | :--------------------------------------: | :---: | -------------------------------------- |
+| Claude Code CLI |                    ✅                    |   —   | Recommended. Generate a key at `/settings`. |
+| Cursor          |                    ✅                    |   —   | Same as CLI.                           |
+| Claude Desktop  |                    ❌                    | (#6)  | UI lacks header field. Phase 2 OAuth.  |
+| claude.ai (web) |                    ❌                    | (#6)  | Web requires OAuth. Phase 2.           |
 
-| Client          | Bearer header (`PULLMD_AUTH_TOKEN`)   | OAuth          | Status      |
-| --------------- | ------------------------------------- | -------------- | ----------- |
-| Claude Code CLI | ✅ works today                        | not needed     | Recommended |
-| Cursor          | ✅ works today                        | not needed     | Recommended |
-| Claude Desktop  | ❌ UI doesn't support custom headers  | needs Phase 2  | Limited     |
-| claude.ai (web) | ❌ not supported by client            | needs Phase 2  | Limited     |
+For Phase 1, Claude Desktop / claude.ai users still need the OAuth/proxy workaround documented in [#10](https://github.com/AeternaLabsHQ/pullmd/issues/10). Phase 2 (#6) layers OAuth on top of this user system.
 
 #### Claude Desktop limitation
 
