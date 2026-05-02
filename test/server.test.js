@@ -454,6 +454,154 @@ describe('POST /mcp', () => {
     assert.ok(j.result.content[0].text.includes('# Test page'));
     assert.equal(j.result.structuredContent, undefined, 'structuredContent must be absent so MCP clients surface content[0].text');
   });
+
+  it('read_url prepends YAML frontmatter with source, share_id, share_url, quality, cached', async () => {
+    const app = createApp({
+      cache: createCache(':memory:'),
+      extractWeb: async () => ({ markdown: '# Test page\n\nBody', title: 'T', source: 'readability', metadata: { quality: 0.8 } }),
+    });
+    const res = await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'read_url', arguments: { url: 'https://example.com/x' } },
+      }),
+    });
+    const text = parseSse(res.body).result.content[0].text;
+    assert.ok(text.startsWith('---\n'), 'response should start with YAML frontmatter delimiter');
+    const fmEnd = text.indexOf('\n---\n', 4);
+    assert.ok(fmEnd > 0, 'frontmatter block should be closed');
+    const fm = text.slice(4, fmEnd);
+    assert.match(fm, /^source: readability$/m);
+    assert.match(fm, /^share_id: [0-9a-f]{8}$/m);
+    assert.match(fm, /^share_url: https?:\/\/[^/]+\/s\/[0-9a-f]{8}$/m);
+    assert.match(fm, /^quality: 0\.8$/m);
+    assert.match(fm, /^cached: false$/m);
+    assert.ok(text.slice(fmEnd).includes('# Test page'), 'markdown body comes after frontmatter');
+  });
+
+  it('read_url uses PUBLIC_URL env for share_url when set', async () => {
+    const prev = process.env.PUBLIC_URL;
+    process.env.PUBLIC_URL = 'https://my-instance.example.com';
+    try {
+      const app = createApp({
+        cache: createCache(':memory:'),
+        extractWeb: async () => ({ markdown: '# X', title: 'X', source: 'trafilatura', metadata: { quality: 1 } }),
+      });
+      const res = await request(app, '/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+        body: JSON.stringify({
+          jsonrpc: '2.0', id: 1, method: 'tools/call',
+          params: { name: 'read_url', arguments: { url: 'https://example.com/x' } },
+        }),
+      });
+      const text = parseSse(res.body).result.content[0].text;
+      assert.match(text, /^share_url: https:\/\/my-instance\.example\.com\/s\/[0-9a-f]{8}$/m);
+    } finally {
+      if (prev === undefined) delete process.env.PUBLIC_URL;
+      else process.env.PUBLIC_URL = prev;
+    }
+  });
+
+  it('read_url marks cached=true on the second call to the same URL', async () => {
+    const cache = createCache(':memory:');
+    let calls = 0;
+    const app = createApp({
+      cache,
+      extractWeb: async () => { calls++; return { markdown: '# Cached page', title: 'T', source: 'readability', metadata: { quality: 0.7 } }; },
+    });
+    const body = (id) => JSON.stringify({
+      jsonrpc: '2.0', id, method: 'tools/call',
+      params: { name: 'read_url', arguments: { url: 'https://example.com/cached' } },
+    });
+    await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: body(1),
+    });
+    const res2 = await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: body(2),
+    });
+    const text = parseSse(res2.body).result.content[0].text;
+    assert.equal(calls, 1, 'extractWeb should be called only once across the two requests');
+    assert.match(text, /^cached: true$/m);
+  });
+
+  it('read_url with frontmatter=true merges share_url/cached into existing block (no duplicate keys)', async () => {
+    const app = createApp({
+      cache: createCache(':memory:'),
+      extractWeb: async () => ({
+        markdown: '# Page\n\nBody',
+        title: 'Page',
+        source: 'trafilatura',
+        metadata: { title: 'Page', sourceUrl: 'https://example.com/y', quality: 0.9 },
+      }),
+    });
+    const res = await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'read_url', arguments: { url: 'https://example.com/y', frontmatter: true } },
+      }),
+    });
+    const text = parseSse(res.body).result.content[0].text;
+    assert.ok(text.startsWith('---\n'));
+    const fmEnd = text.indexOf('\n---\n', 4);
+    const fm = text.slice(4, fmEnd);
+    assert.equal(fm.match(/^source:/gm).length, 1, 'source must appear exactly once');
+    assert.equal(fm.match(/^share_id:/gm).length, 1, 'share_id must appear exactly once');
+    assert.equal(fm.match(/^quality:/gm).length, 1, 'quality must appear exactly once');
+    assert.match(fm, /^share_url: https?:\/\/[^/]+\/s\/[0-9a-f]{8}$/m);
+    assert.match(fm, /^cached: false$/m);
+  });
+
+  it('list_recent includes share_url for each item', async () => {
+    const cache = createCache(':memory:');
+    cache.put({ url: 'https://example.com/a', title: 'A', markdown: '# A', source: 'readability', client: 'api' });
+    const app = createApp({ cache });
+    const res = await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'list_recent', arguments: {} },
+      }),
+    });
+    const items = JSON.parse(parseSse(res.body).result.content[0].text);
+    assert.equal(items.length, 1);
+    assert.match(items[0].share_url, /^https?:\/\/[^/]+\/s\/[0-9a-f]{8}$/);
+    assert.equal(items[0].share_id, items[0].share_url.split('/').pop());
+  });
+
+  it('get_share embeds url, source, share_id, share_url, refreshed, age_ms in frontmatter', async () => {
+    const cache = createCache(':memory:');
+    const shareId = cache.put({ url: 'https://example.com/z', title: 'Z', markdown: '# Z\n\nBody', source: 'readability', client: 'api' });
+    const app = createApp({ cache });
+    const res = await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'get_share', arguments: { id: shareId } },
+      }),
+    });
+    const text = parseSse(res.body).result.content[0].text;
+    assert.ok(text.startsWith('---\n'));
+    const fmEnd = text.indexOf('\n---\n', 4);
+    const fm = text.slice(4, fmEnd);
+    assert.match(fm, /^url: https:\/\/example\.com\/z$/m);
+    assert.match(fm, /^source: readability$/m);
+    assert.match(fm, new RegExp(`^share_id: ${shareId}$`, 'm'));
+    assert.match(fm, new RegExp(`^share_url: https?:\\/\\/[^\\/]+\\/s\\/${shareId}$`, 'm'));
+    assert.match(fm, /^refreshed: false$/m);
+    assert.match(fm, /^age_ms: \d+$/m);
+    assert.ok(text.slice(fmEnd).includes('# Z'));
+  });
 });
 
 describe('GET /share', () => {
