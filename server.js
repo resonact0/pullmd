@@ -176,9 +176,11 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api', async (req, res) => {
-    const { url, comments, comment_depth, comment_limit, format, nocache, frontmatter, lang, render } = req.query;
+    const { url, comments, comment_depth, comment_limit, format, nocache, frontmatter, lang, render, extractor } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
     const reqLang = lang === 'en' ? 'en' : 'de';
+    const validExtractor = (extractor === 'readability' || extractor === 'trafilatura' || extractor === 'playwright')
+      ? extractor : undefined;
 
     if (!url) {
       return res.status(400).json({ error: 'Missing required parameter: url' });
@@ -190,7 +192,7 @@ export function createApp(overrides = {}) {
     // values actually take effect (the fresh response then overwrites the row).
     const explicitCommentParams = comment_depth !== undefined || comment_limit !== undefined;
     const explicitRenderParam = render === 'force' || render === 'skip';
-    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitCommentParams && !explicitRenderParam;
+    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitCommentParams && !explicitRenderParam && !validExtractor;
 
     const wantComments = comments !== 'false' && comments !== '0';
     const t0 = Date.now();
@@ -307,6 +309,7 @@ export function createApp(overrides = {}) {
       const result = await extractWebFn(url, {
         comments: false,
         render: explicitRenderParam ? render : undefined,
+        extractor: validExtractor,
       });
 
       let shareId = null;
@@ -353,9 +356,11 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api/stream', async (req, res) => {
-    const { url, comments, comment_depth, comment_limit, frontmatter, lang, nocache, render } = req.query;
+    const { url, comments, comment_depth, comment_limit, frontmatter, lang, nocache, render, extractor } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
     const reqLang = lang === 'en' ? 'en' : 'de';
+    const validExtractor = (extractor === 'readability' || extractor === 'trafilatura' || extractor === 'playwright')
+      ? extractor : undefined;
 
     if (!url) {
       return res.status(400).json({ error: 'Missing required parameter: url' });
@@ -379,7 +384,7 @@ export function createApp(overrides = {}) {
     const wantComments = comments !== 'false' && comments !== '0';
     const explicitRenderParam = render === 'force' || render === 'skip';
     const explicitCommentParams = comment_depth !== undefined || comment_limit !== undefined;
-    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitRenderParam && !explicitCommentParams;
+    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitRenderParam && !explicitCommentParams && !validExtractor;
     const t0 = Date.now();
 
     try {
@@ -441,6 +446,7 @@ export function createApp(overrides = {}) {
       const result = await extractWebFn(url, {
         comments: false,
         render: explicitRenderParam ? render : undefined,
+        extractor: validExtractor,
         emit,
         signal: ac.signal,
       });

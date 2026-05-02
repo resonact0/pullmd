@@ -101,6 +101,44 @@ describe('GET /api - web URLs', () => {
     assert.ok(res.body.includes('# Web Page'));
   });
 
+  it('forwards ?extractor= to extractWeb when valid (#17)', async () => {
+    let received;
+    const app = createApp({
+      extractWeb: async (url, opts) => {
+        received = opts.extractor;
+        return { markdown: '# Forced', title: 'Forced', source: opts.extractor || 'readability' };
+      },
+      cache: createCache(':memory:'),
+    });
+    await request(app, '/api?url=https://example.com/x&extractor=trafilatura');
+    assert.equal(received, 'trafilatura');
+  });
+
+  it('ignores invalid ?extractor= values (no override → undefined)', async () => {
+    let received = '__unset__';
+    const app = createApp({
+      extractWeb: async (url, opts) => {
+        received = opts.extractor;
+        return { markdown: '# X', title: 'X', source: 'readability' };
+      },
+      cache: createCache(':memory:'),
+    });
+    await request(app, '/api?url=https://example.com/x&extractor=garbage');
+    assert.equal(received, undefined);
+  });
+
+  it('?extractor= bypasses the cache so the override actually runs', async () => {
+    let calls = 0;
+    const cache = createCache(':memory:');
+    const app = createApp({
+      extractWeb: async () => { calls++; return { markdown: '# Y', title: 'Y', source: 'readability' }; },
+      cache,
+    });
+    await request(app, '/api?url=https://example.com/cached2');
+    await request(app, '/api?url=https://example.com/cached2&extractor=trafilatura');
+    assert.equal(calls, 2, 'second call with extractor must skip the cache');
+  });
+
   it('returns cached result when available', async () => {
     let callCount = 0;
     const cache = createCache(':memory:');
@@ -576,6 +614,45 @@ describe('POST /mcp', () => {
     assert.equal(items.length, 1);
     assert.match(items[0].share_url, /^https?:\/\/[^/]+\/s\/[0-9a-f]{8}$/);
     assert.equal(items[0].share_id, items[0].share_url.split('/').pop());
+  });
+
+  it('read_url forwards extractor option to extractWeb (#17)', async () => {
+    let receivedExtractor = '__unset__';
+    const app = createApp({
+      cache: createCache(':memory:'),
+      extractWeb: async (url, opts) => {
+        receivedExtractor = opts.extractor;
+        return { markdown: '# X', title: 'X', source: opts.extractor || 'readability', metadata: { quality: 0.9 } };
+      },
+    });
+    const res = await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'read_url', arguments: { url: 'https://example.com/forced', extractor: 'trafilatura' } },
+      }),
+    });
+    const text = parseSse(res.body).result.content[0].text;
+    assert.equal(receivedExtractor, 'trafilatura');
+    assert.match(text, /^source: trafilatura$/m);
+  });
+
+  it('read_url rejects an invalid extractor value via Zod schema', async () => {
+    const app = createApp({ cache: createCache(':memory:') });
+    const res = await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'read_url', arguments: { url: 'https://example.com/x', extractor: 'invalid-value' } },
+      }),
+    });
+    const j = parseSse(res.body);
+    // MCP surfaces tool-arg validation as an error; either an error envelope
+    // or an isError content payload is acceptable here.
+    const errored = j.error || j.result?.isError;
+    assert.ok(errored, 'invalid extractor enum value must be rejected');
   });
 
   it('get_share embeds url, source, share_id, share_url, refreshed, age_ms in frontmatter', async () => {

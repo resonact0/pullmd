@@ -168,6 +168,130 @@ describe('extractWeb - charset detection (#8)', () => {
   });
 });
 
+describe('extractWeb - extractor override (#17)', () => {
+  const baseHtml = `
+    <html><head><title>Article</title></head>
+    <body><article>
+      <h1>Article</h1>
+      <p>Body paragraph one with enough text for Readability to commit to this content. The article needs at least 200 chars in the readability output, so the prose has to be a bit longer than usual.</p>
+      <p>Body paragraph two providing additional substance so the static extractor finds plenty of weight in this candidate node and chooses it.</p>
+    </article></body></html>
+  `;
+  const fetcher = () => ({
+    ok: true,
+    headers: { get: () => 'text/html; charset=utf-8' },
+    text: async () => baseHtml,
+  });
+
+  // The Trafilatura URL is captured at module load — re-import per test.
+  async function importWithTrafi(url) {
+    process.env.TRAFILATURA_URL = url;
+    return import(`../lib/web.js?ext=${Date.now()}-${Math.random()}`);
+  }
+
+  it('extractor=readability skips Trafilatura entirely', async () => {
+    const prev = process.env.TRAFILATURA_URL;
+    try {
+      const { extractWeb: ew } = await importWithTrafi('http://trafilatura-test/extract');
+      let trafiCalls = 0;
+      const fakeFetch = async (url) => {
+        if (typeof url === 'string' && url.includes('trafilatura-test')) trafiCalls++;
+        return { ok: true, headers: { get: () => 'text/html; charset=utf-8' }, text: async () => baseHtml };
+      };
+      const result = await ew('https://example.com/x', { fetch: fakeFetch, extractor: 'readability' });
+      assert.equal(result.source, 'readability');
+      assert.equal(trafiCalls, 0, 'Trafilatura sidecar must not be called');
+      assert.match(result.metadata.extractorReason, /forced via extractor=readability/);
+    } finally {
+      if (prev === undefined) delete process.env.TRAFILATURA_URL;
+      else process.env.TRAFILATURA_URL = prev;
+    }
+  });
+
+  it('extractor=trafilatura uses the sidecar output and skips pickBest', async () => {
+    const prev = process.env.TRAFILATURA_URL;
+    try {
+      const { extractWeb: ew } = await importWithTrafi('http://trafilatura-test/extract');
+      const trafiOut = '# Article\n\n' + 'Trafilatura body paragraph with substantial text. '.repeat(20);
+      const fakeFetch = async (url) => {
+        if (typeof url === 'string' && url.includes('/extract')) {
+          return { ok: true, headers: { get: () => 'text/plain' }, text: async () => trafiOut };
+        }
+        return { ok: true, headers: { get: () => 'text/html; charset=utf-8' }, text: async () => baseHtml };
+      };
+      const result = await ew('https://example.com/x', { fetch: fakeFetch, extractor: 'trafilatura' });
+      assert.equal(result.source, 'trafilatura');
+      assert.ok(result.markdown.includes('Trafilatura body paragraph'), 'Trafilatura output must be the chosen one');
+      assert.match(result.metadata.extractorReason, /forced via extractor=trafilatura/);
+    } finally {
+      if (prev === undefined) delete process.env.TRAFILATURA_URL;
+      else process.env.TRAFILATURA_URL = prev;
+    }
+  });
+
+  it('extractor=trafilatura falls back to pickBest with a warning when sidecar is unreachable', async () => {
+    const prev = process.env.TRAFILATURA_URL;
+    try {
+      const { extractWeb: ew } = await importWithTrafi('http://trafilatura-test/extract');
+      const fakeFetch = async (url) => {
+        if (typeof url === 'string' && url.includes('/extract')) {
+          return { ok: false, status: 503, headers: { get: () => null }, text: async () => '' };
+        }
+        return { ok: true, headers: { get: () => 'text/html; charset=utf-8' }, text: async () => baseHtml };
+      };
+      const result = await ew('https://example.com/x', { fetch: fakeFetch, extractor: 'trafilatura' });
+      assert.match(result.source, /^readability/);
+      assert.match(result.metadata.extractorReason, /unavailable, fell back/);
+    } finally {
+      if (prev === undefined) delete process.env.TRAFILATURA_URL;
+      else process.env.TRAFILATURA_URL = prev;
+    }
+  });
+
+  it('extractor=playwright forces a render even when the static result looks fine', async () => {
+    let renderCalls = 0;
+    const renderClient = async () => {
+      renderCalls++;
+      return baseHtml;
+    };
+    const result = await extractWeb('https://example.com/x', {
+      fetch: fetcher,
+      extractor: 'playwright',
+      renderClient,
+    });
+    assert.equal(renderCalls, 1, 'render client must be invoked exactly once');
+    assert.equal(result.source, 'playwright');
+    assert.match(result.metadata.extractorReason, /forced via extractor=playwright/);
+  });
+
+  it('no extractor override → existing pickBest behavior preserved', async () => {
+    const result = await extractWeb('https://example.com/x', { fetch: fetcher });
+    assert.match(result.source, /^readability/);
+    assert.ok(result.metadata.extractorReason && !/forced via extractor/.test(result.metadata.extractorReason));
+  });
+});
+
+describe('extractWeb - preprocessing (#17)', () => {
+  it('recovers paywall + aria-hidden paragraphs that Readability would normally drop', async () => {
+    const html = `
+      <html><head><title>T</title></head>
+      <body><article>
+        <h1>Headline</h1>
+        <p>Visible body paragraph one with enough text for Readability to commit to this candidate as the article body, so the page passes the substantial-content threshold cleanly.</p>
+        <p class="paywall" aria-hidden="true">"Whatever you say" — the quote that carries the article and would otherwise vanish via the aria-hidden silent drop.</p>
+        <p>Visible body paragraph three rounding out the article with another bit of prose that gets the candidate clearly above the minimum length floor.</p>
+      </article></body></html>
+    `;
+    const fetcher = () => ({
+      ok: true,
+      headers: { get: () => 'text/html; charset=utf-8' },
+      text: async () => html,
+    });
+    const result = await extractWeb('https://example.com/de', { fetch: fetcher });
+    assert.ok(result.markdown.includes('"Whatever you say"'), 'paywall paragraph must be in the output');
+  });
+});
+
 describe('extractWeb - error handling', () => {
   it('throws when page cannot be fetched', async () => {
     const fetcher = mockFetch({
