@@ -166,6 +166,16 @@ lands.
 
 ## Authentication (v2.0+)
 
+> **Pulling v2.x:** Use the explicit `:2` tag (or `:2.0`, `:2.0.0`).
+> The `:latest` tag remains on v1.x for backward compatibility 
+> until v2.x has stabilized in real-world deployments.
+> 
+> ```yaml
+> services:
+>   pullmd:
+>     image: aeternalabs/pullmd:2
+> ```
+
 PullMD ships with three auth modes. Pick one with `PULLMD_AUTH_MODE`:
 
 | Mode           | Behavior                                                                    |
