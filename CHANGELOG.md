@@ -4,6 +4,16 @@
 
 **Breaking:** PullMD now supports an authentication system. Existing installs keep working unchanged (default `PULLMD_AUTH_MODE=disabled`); operators who want auth must follow [`MIGRATION.md`](./MIGRATION.md).
 
+> **Pulling v2.x:** Use the explicit `:2` tag (or `:2.0`, `:2.0.0`).
+> The `:latest` tag remains on v1.x for backward compatibility 
+> until v2.x has stabilized in real-world deployments.
+> 
+> ```yaml
+> services:
+>   pullmd:
+>     image: aeternalabs/pullmd:2
+> ```
+
 ### Added
 - Three auth modes (`disabled` / `single-admin` / `multi-user`) controlled by `PULLMD_AUTH_MODE`.
 - Web sessions: `POST /login`, `POST /logout`, `GET /signup`, `GET /api/me`, server-rendered HTML for `/login` and `/signup`.
