@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractWeb } from '../lib/web.js';
+import { matchRecipesAgainst } from '../lib/recipes.js';
 
 // Single-fetch: extractWeb makes exactly ONE request per call.
 // The Accept header includes text/markdown preference.
@@ -558,5 +559,141 @@ describe('cleanDom CMS-pattern preprocessing', () => {
     </article></body></html>`;
     const result = await extractWeb('https://example.com/photos', { fetch: fetchHtml(html) });
     assert.match(result.markdown, /A red sunset over mountains/);
+  });
+});
+
+describe('extractWeb — recipe integration (Hook 0+1)', () => {
+  // HTML substantial enough that renderDecision returns no on its own
+  // (sufficient length, multiple paragraphs, no fallback). Ensures the recipe
+  // render=force flag is the SOLE reason renderClient gets invoked.
+  const substantialHtml = `<html><head><title>Substantial Article</title></head><body><article><h1>Substantial Article</h1>${'<p>This is a long paragraph with meaningful content and enough words to clear the eighty-character substantial threshold easily, so multiple of these will produce strong static extraction.</p>'.repeat(20)}</article></body></html>`;
+
+  it('uses recipe.fetch.render when no query render param', async () => {
+    const recipes = [{ name: 'r', host: 'example.com', path: '/**', preprocess: [], select: { remove: [] }, fetch: { render: 'force' } }];
+    let renderCalled = false;
+    const fetcher = mockFetch({
+      ok: true,
+      headers: { get: (h) => h === 'content-type' ? 'text/html' : null },
+      text: async () => substantialHtml,
+      arrayBuffer: async () => new TextEncoder().encode(substantialHtml).buffer,
+      status: 200,
+    });
+    const renderClient = async (url, opts) => {
+      renderCalled = true;
+      return substantialHtml;
+    };
+    await extractWeb('https://example.com/', { fetch: fetcher, renderClient, recipes });
+    assert.equal(renderCalled, true, 'recipe render=force should trigger renderClient');
+  });
+
+  it('query render=skip wins over recipe render=force', async () => {
+    const recipes = [{ name: 'r', host: 'example.com', path: '/**', preprocess: [], select: { remove: [] }, fetch: { render: 'force' } }];
+    let renderCalled = false;
+    const fetcher = mockFetch({
+      ok: true,
+      headers: { get: (h) => h === 'content-type' ? 'text/html' : null },
+      text: async () => '<html><body><article><p>x</p></article></body></html>',
+      arrayBuffer: async () => new TextEncoder().encode('<html><body><article><p>x</p></article></body></html>').buffer,
+      status: 200,
+    });
+    const renderClient = async () => { renderCalled = true; return ''; };
+    await extractWeb('https://example.com/', { fetch: fetcher, renderClient, recipes, render: 'skip' });
+    assert.equal(renderCalled, false);
+  });
+});
+
+describe('extractWeb — recipe integration (Hook 2 preprocess + select)', () => {
+  it('applies recipe preprocess actions before extraction', async () => {
+    const recipes = [{
+      name: 'r', host: 'example.com', path: '/**',
+      preprocess: [{ action: 'remove-element', selector: 'div.ads-noise' }],
+      select: { remove: [] }, fetch: {},
+    }];
+    const html = '<html><head><title>T</title></head><body><article>' +
+      '<div class="ads-noise">PREPROCESS-SHOULD-REMOVE-ME</div>' +
+      '<p>A substantial paragraph with enough body text to clear extraction-quality thresholds, ' +
+      'this is filler content for the test, more filler content for the test, and even more.</p>' +
+      '</article></body></html>';
+    const fetcher = mockFetch({
+      ok: true,
+      headers: { get: (h) => h === 'content-type' ? 'text/html' : null },
+      text: async () => html,
+      arrayBuffer: async () => new TextEncoder().encode(html).buffer,
+      status: 200,
+    });
+    const result = await extractWeb('https://example.com/', { fetch: fetcher, recipes });
+    assert.ok(result.markdown.includes('substantial paragraph'), 'body paragraph survives');
+    assert.equal(result.markdown.includes('PREPROCESS-SHOULD-REMOVE-ME'), false,
+      'recipe preprocess remove-element must strip the noise div');
+  });
+
+  it('extends cleanDom REMOVE_SELECTORS via recipe select.remove', async () => {
+    const recipes = [{
+      name: 'r', host: 'example.com', path: '/**',
+      preprocess: [], select: { remove: ['div.recipe-only-strip'] }, fetch: {},
+    }];
+    const html = '<html><head><title>T</title></head><body><article>' +
+      '<div class="recipe-only-strip">SELECT-SHOULD-NOT-APPEAR</div>' +
+      '<p>A substantial paragraph with enough body text to clear extraction-quality thresholds for the article container.</p>' +
+      '</article></body></html>';
+    const fetcher = mockFetch({
+      ok: true,
+      headers: { get: (h) => h === 'content-type' ? 'text/html' : null },
+      text: async () => html,
+      arrayBuffer: async () => new TextEncoder().encode(html).buffer,
+      status: 200,
+    });
+    const result = await extractWeb('https://example.com/', { fetch: fetcher, recipes });
+    assert.equal(result.markdown.includes('SELECT-SHOULD-NOT-APPEAR'), false,
+      'recipe select.remove must strip the targeted div');
+  });
+});
+
+describe('extractWeb — Hook 3 (playwright fetch options)', () => {
+  it('passes recipe.fetch.wait_for and mobile_ua to renderClient', async () => {
+    const recipes = [{
+      name: 'r', host: 'example.com', path: '/**',
+      preprocess: [], select: { remove: [] },
+      fetch: { render: 'force', wait_for: '.gate', wait_timeout_ms: 3000, mobile_ua: true },
+    }];
+    let renderOpts;
+    const fetcher = mockFetch({
+      ok: true,
+      headers: { get: (h) => h === 'content-type' ? 'text/html' : null },
+      text: async () => '<html><body><article><p>x</p></article></body></html>',
+      arrayBuffer: async () => new TextEncoder().encode('<html><body><article><p>x</p></article></body></html>').buffer,
+      status: 200,
+    });
+    const renderClient = async (url, opts) => {
+      renderOpts = opts;
+      return '<html><body><article><h1>R</h1><p>rendered substantial body content paragraph for testing pipeline.</p></article></body></html>';
+    };
+    await extractWeb('https://example.com/', { fetch: fetcher, renderClient, recipes });
+    assert.equal(renderOpts.waitFor, '.gate');
+    assert.equal(renderOpts.waitTimeoutMs, 3000);
+    assert.equal(renderOpts.mobileUa, true);
+  });
+
+  it('passes a User-Agent string to renderClient (from the rotation pool)', async () => {
+    const recipes = [{
+      name: 'r', host: 'example.com', path: '/**',
+      preprocess: [], select: { remove: [] },
+      fetch: { render: 'force' },  // force render to exercise the renderClient path
+    }];
+    let renderOpts;
+    const fetcher = mockFetch({
+      ok: true,
+      headers: { get: (h) => h === 'content-type' ? 'text/html' : null },
+      text: async () => '<html><body><article><p>x</p></article></body></html>',
+      arrayBuffer: async () => new TextEncoder().encode('<html><body><article><p>x</p></article></body></html>').buffer,
+      status: 200,
+    });
+    const renderClient = async (url, opts) => {
+      renderOpts = opts;
+      return '<html><body><article><h1>R</h1><p>rendered substantial body content paragraph for testing pipeline.</p></article></body></html>';
+    };
+    await extractWeb('https://example.com/', { fetch: fetcher, renderClient, recipes });
+    assert.ok(typeof renderOpts.userAgent === 'string', 'userAgent should be a string');
+    assert.match(renderOpts.userAgent, /Mozilla\//, 'userAgent should look like a real UA string');
   });
 });
