@@ -1,3 +1,53 @@
+# Migrating from v2.2.x to v2.3.0
+
+v2.3.0 ships the OAuth 2.1 Authorization Code flow for the claude.ai web custom connector and Claude Desktop's custom-connector dialog (#6, #10). Pure additive change — existing instances keep working unchanged unless you opt in by setting `OAUTH_JWT_SECRET`.
+
+## Pin v2 tags explicitly
+
+`:latest` stays on v1.x. Update your compose / k8s manifests:
+
+```yaml
+# Before
+image: aeternalabshq/pullmd:2.2.0
+# After
+image: aeternalabshq/pullmd:2.3.0
+```
+
+The Playwright and Trafilatura sidecars don't need a bump for this release — v2.2.0 sidecars work with v2.3.0 pullmd. But there's no harm in bumping them together for consistency.
+
+## Enable OAuth (optional)
+
+OAuth is opt-in. If you don't set `OAUTH_JWT_SECRET`, nothing changes.
+
+1. Generate a JWT signing secret (32+ chars):
+
+   ```
+   openssl rand -hex 32
+   ```
+
+2. Add to your `.env`:
+
+   ```
+   OAUTH_JWT_SECRET=<the hex string>
+   PUBLIC_URL=https://your-host.example.com
+   ```
+
+   `PUBLIC_URL` is required when OAuth is enabled (used as JWT issuer + audience and in discovery metadata).
+
+3. Restart. The first boot creates the `oauth_clients`, `oauth_auth_codes`, and `oauth_refresh_tokens` tables.
+
+4. In claude.ai web or Claude Desktop, add a custom connector pointing at `<PUBLIC_URL>/mcp`. The connector dialog will discover the server's OAuth metadata, register itself via DCR, and walk the user through the consent screen.
+
+## Schema migrations
+
+The three `oauth_*` tables are created automatically on first boot — no manual SQL. They have foreign-key constraints onto `users` and cascade on delete.
+
+## Rolling back to v2.2.x
+
+OAuth tables are unused by v2.2.x and earlier, and can stay in the database without harm. Just pin to a v2.2.x image tag.
+
+---
+
 # Migrating from v1.x to v2.0
 
 PullMD v2.0 introduces an authentication system. Existing installations keep working unchanged — `PULLMD_AUTH_MODE=disabled` (the default) preserves v1.x behavior. This document covers the path for operators who want to enable auth.
