@@ -69,10 +69,19 @@ jobs:
           # Tag plan during the v1 → v2 migration grace period:
           #   - vX.Y.Z tag push      → vX.Y.Z, X.Y, X
           #   - main push (untagged) → main, sha-<sha>
-          #   - `latest` is intentionally PINNED to v1.2.x via the v1.2.x image
-          #     in the registry. Neither tag pushes nor merges to main update
-          #     it. Re-enable by uncommenting the type=raw line below once
-          #     self-hosters have had time to migrate (≈ 2 weeks post-v2.0.0).
+          #   - `latest` is intentionally PINNED to v1.x in the registry.
+          #     Neither tag pushes nor merges to main update it. Re-enable by
+          #     setting `flavor: latest=true` (or adding an explicit
+          #     `type=raw,value=latest`) once self-hosters have had time to
+          #     migrate.
+          # NOTE: `flavor: latest=false` is REQUIRED — docker/metadata-action's
+          # default is `latest=auto`, which auto-tags `:latest` for every semver
+          # tag push regardless of which `type=` patterns are listed below. The
+          # v2.3.0 release silently bumped `:latest` despite the (commented-out)
+          # `type=raw` line in commit 2bf9cb0 — that commit treated `latest`
+          # purely as a tag-list entry, missing the flavor default.
+          flavor: |
+            latest=false
           tags: |
             type=ref,event=branch
             type=ref,event=pr
@@ -80,7 +89,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha,prefix=sha-
-            # type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push
         uses: docker/build-push-action@v5
