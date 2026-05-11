@@ -1,5 +1,11 @@
 # PullMD
 
+[![Release](https://img.shields.io/github/v/release/AeternaLabsHQ/pullmd?color=ff5722)](https://github.com/AeternaLabsHQ/pullmd/releases)
+[![Docker Pulls](https://img.shields.io/docker/pulls/aeternalabshq/pullmd?color=2496ed&logo=docker&logoColor=white)](https://hub.docker.com/r/aeternalabshq/pullmd)
+[![CI](https://img.shields.io/github/actions/workflow/status/AeternaLabsHQ/pullmd/docker.yml?branch=main&label=build)](https://github.com/AeternaLabsHQ/pullmd/actions/workflows/docker.yml)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blueviolet)](https://github.com/AeternaLabsHQ/pullmd/blob/main/LICENSE)
+[![MCP](https://img.shields.io/badge/MCP-compatible-7c4dff?logo=anthropic&logoColor=white)](https://github.com/AeternaLabsHQ/pullmd#mcp-server)
+
 Self-hosted URL-to-Markdown service for humans and AI agents.
 
 <p align="center">
@@ -15,7 +21,7 @@ Chromium (Playwright sidecar) before extracting.
 
 It ships as:
 
-- a **PWA frontend** with dark/paper themes, history, archive, share links
+- a **PWA frontend** with raw/rendered view toggle, dark/paper themes, history, archive, share links
 - a **REST API** at `GET /api?url=…`
 - an **MCP server** at `POST /mcp` (Streamable-HTTP transport, stateless)
 - a **Claude Code skill** as a downloadable zip
