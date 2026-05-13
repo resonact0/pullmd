@@ -1636,7 +1636,7 @@
         loadingEl.classList.add('visible');
         errorEl.classList.remove('visible');
         resultContainer.classList.remove('visible');
-        shareBar.classList.remove('visible');
+        shareBar.style.display = 'none';
         goBtn.disabled = true;
       }
       function hideLoading() {
@@ -1730,11 +1730,11 @@
         if (shareId) {
           var shareUrl = SHARE_BASE + shareId;
           shareUrlEl.textContent = shareUrl;
-          shareBar.classList.add('visible');
+          shareBar.style.display = 'flex';
           shareCopyBtn.textContent = t('copy');
           shareCopyBtn.classList.remove('copied');
         } else {
-          shareBar.classList.remove('visible');
+          shareBar.style.display = 'none';
         }
       }
 
@@ -2288,7 +2288,7 @@
         if (archiveView.classList.contains('visible')) hideArchive();
         resultContainer.classList.remove('visible');
         errorEl.classList.remove('visible');
-        shareBar.classList.remove('visible');
+        shareBar.style.display = 'none';
         hideLoading();
       }
       window.addEventListener('popstate', function() { goHome(); });
