@@ -101,6 +101,13 @@ export function createApp(overrides = {}) {
     }
   });
 
+  // Service worker must never be cached so browsers pick up updates immediately.
+  app.get('/sw.js', (req, res) => {
+    res.set('Content-Type', 'application/javascript');
+    res.set('Cache-Control', 'no-store');
+    res.sendFile('sw.js', { root: 'public' });
+  });
+
   app.use(express.static('public', { extensions: ['html'] }));
 
   if (auth) {
