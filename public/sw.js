@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pullmd-v23';
+const CACHE_NAME = 'pullmd-v26';
 const SHELL_URLS = [
   '/',
   '/index.html',
@@ -16,10 +16,9 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
-      .then(() => self.clients.matchAll({ includeUncontrolled: true, type: 'window' }))
-      .then((clients) => clients.forEach((c) => c.navigate(c.url)))
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    )
   );
   self.clients.claim();
 });
