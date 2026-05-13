@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.4.1 — 2026-05-13
+
+### Fixed
+
+- **Permalink bar hidden by ad-blockers** (e.g. uBlock Origin). Renamed all `share-bar` / `share-url` / `share-copy-btn` CSS classes and IDs to `permalink-bar` / `permalink-url` / `permalink-copy-btn` so cosmetic filter lists no longer suppress the element.
+- **Service Worker**: removed aggressive `c.navigate()` forced tab-reload on SW activation that was introduced as a debugging artifact; stale cache entries for SW v20–v25 are still cleaned up on activate.
+
+### Changed
+
+- **`:latest` Docker tag** now tracks the most recent release again. The v1→v2 migration grace period is over; self-hosters who want to pin v1 should use `:1` or `:1.2`.
+
 ## v2.4.0 — 2026-05-11
 
 ### Added
