@@ -82,6 +82,20 @@ describe('auth routes — multi-user', () => {
     });
   });
 
+  it('POST /login honours next=/#url=... (share-restore flow)', async () => {
+    await withApp('multi-user', async (base) => {
+      const next = '/#url=' + encodeURIComponent('https://ex.com/a');
+      const r = await fetch(base + '/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'email=admin@x.y&password=adminpass1&next=' + encodeURIComponent(next),
+        redirect: 'manual',
+      });
+      assert.equal(r.status, 302);
+      assert.equal(r.headers.get('location'), next);
+    });
+  });
+
   it('POST /login refuses next=//evil.com (protocol-relative)', async () => {
     await withApp('multi-user', async (base) => {
       const r = await fetch(base + '/login', {
@@ -145,6 +159,28 @@ describe('auth routes — multi-user', () => {
       });
       assert.equal(r.status, 302);
       assert.equal(auth.lookupSession(token), null);
+    });
+  });
+
+  it('POST /logout while the session is sliding sends only the clearing cookie', async () => {
+    await withApp('multi-user', async (base, { auth, cache }) => {
+      const adminId = cache.db.prepare("SELECT id FROM users").get().id;
+      const { token } = auth.createSession(adminId);
+      // Age the session so the middleware's sliding refresh fires on this request.
+      cache.db
+        .prepare("UPDATE sessions SET expires_at = datetime('now', '+30 days') WHERE token = ?")
+        .run(token);
+      const r = await fetch(base + '/logout', {
+        method: 'POST',
+        headers: { Cookie: `pullmd_session=${token}` },
+        redirect: 'manual',
+      });
+      assert.equal(r.status, 302);
+      const sessionCookies = (r.headers.getSetCookie?.() || [])
+        .filter((c) => c.startsWith('pullmd_session='));
+      assert.equal(sessionCookies.length, 1, `expected exactly one session Set-Cookie, got: ${sessionCookies.join(' | ')}`);
+      assert.match(sessionCookies[0], /^pullmd_session=;/);
+      assert.match(sessionCookies[0], /Max-Age=0/);
     });
   });
 
