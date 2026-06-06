@@ -9,7 +9,7 @@ Self-hosters should consult [`MIGRATION.md`](./MIGRATION.md) when upgrading acro
 
 ---
 
-## [Unreleased]
+## [2.5.0] - 2026-06-06
 
 ### Fixed
 - **Sessions no longer die a hard 7 days after login regardless of activity** ([#26](https://github.com/AeternaLabsHQ/pullmd/issues/26)). The session cookie is now re-issued with a fresh `Max-Age` whenever the DB-side sliding expiry bumps (existing once-per-minute throttle), so browser cookie and DB session finally slide together.
