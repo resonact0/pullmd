@@ -1,6 +1,6 @@
 import express from 'express';
 import { extractPost, normalizeRedditUrl } from './lib/reddit.js';
-import { extractWeb } from './lib/web.js';
+import { extractWeb, extractHtml } from './lib/web.js';
 import { createCache } from './lib/cache.js';
 import { createAuth, formatBootstrapError } from './lib/auth.js';
 import { createOAuth, mountOAuthRoutes, oauthCors } from './lib/oauth/index.js';
@@ -59,6 +59,7 @@ export function createApp(overrides = {}) {
   const app = express();
   const extract = overrides.extractPost || extractPost;
   const extractWebFn = overrides.extractWeb || extractWeb;
+  const extractHtmlFn = overrides.extractHtml || extractHtml;
   const cache = overrides.cache || null;
   const auth = overrides.auth || null;
   const oauth = overrides.oauth || null;
@@ -392,6 +393,82 @@ export function createApp(overrides = {}) {
     }
   });
 
+  // Convert a local / pre-fetched HTML document (issue #28). Privacy by
+  // design: no cache.put() - no history entry, no share link; telemetry
+  // logs a constant placeholder instead of a (potentially sensitive)
+  // file name. No Playwright either - user-supplied HTML must never run
+  // in a server-side browser.
+  const MIN_LOCAL_HTML_CONTENT_CHARS = 200;
+  app.post('/api/html', gate, express.text({ type: ['text/html', 'application/xhtml+xml'], limit: '10mb' }), async (req, res) => {
+    const { url, format, frontmatter, extractor } = req.query;
+    // Prefer the X-Filename header (PWA) over ?filename= — header values stay
+    // out of reverse-proxy access logs, query strings don't. Sent URI-encoded.
+    let filename = req.query.filename;
+    const filenameHeader = req.headers['x-filename'];
+    if (filenameHeader) {
+      try { filename = decodeURIComponent(filenameHeader); } catch { filename = filenameHeader; }
+    }
+    const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
+    const validExtractor = (extractor === 'readability' || extractor === 'trafilatura') ? extractor : undefined;
+
+    // express.text leaves req.body unset when the Content-Type doesn't match.
+    if (typeof req.body !== 'string' || !req.body.trim()) {
+      return res.status(400).json({ error: 'Send raw HTML in the request body with Content-Type: text/html' });
+    }
+    if (url) {
+      try { new URL(url); } catch { return res.status(400).json({ error: 'Invalid url parameter' }); }
+    }
+
+    const client = detectClient(req.headers['user-agent'], req.headers['x-client-mode'] || req.query.client_mode);
+    const t0 = Date.now();
+
+    try {
+      const result = await extractHtmlFn(req.body, { url, filename, extractor: validExtractor });
+
+      if ((result.metadata?.contentLength ?? 0) < MIN_LOCAL_HTML_CONTENT_CHARS) {
+        return res.status(422).json({
+          error: 'Extraction found almost no content - this file looks like a JavaScript app shell. Submit the original URL instead. / Die Extraktion fand kaum Inhalt - die Datei wirkt wie eine JavaScript-App. Bitte übermittle stattdessen die Original-URL.',
+        });
+      }
+
+      const fm = wantFrontmatter
+        ? buildFrontmatter(result.metadata || {}, { source: result.source, shareId: null })
+        : '';
+      const finalMd = fm + result.markdown;
+
+      res.set('X-Source', result.source);
+      if (result.metadata?.quality !== undefined) {
+        res.set('X-Quality', String(result.metadata.quality));
+      }
+      if (cache) cache.logExtraction({
+        url: 'local-file',                       // constant placeholder - never the file name
+        source: result.source,
+        quality: result.metadata?.quality,
+        markdownLen: result.markdown.length,
+        extractorReason: result.metadata?.extractorReason || null,
+        durationMs: Date.now() - t0,
+        client, cached: false,
+      });
+      if (format === 'json') {
+        return res.json({
+          markdown: finalMd,
+          metadata: result.metadata || null,
+          source: result.source,
+          shareId: null,
+        });
+      }
+      if (format === 'text') {
+        res.set('Content-Type', 'text/plain; charset=utf-8');
+        return res.send(stripMarkdown(finalMd));
+      }
+      res.set('Content-Type', 'text/markdown; charset=utf-8');
+      return res.send(finalMd);
+    } catch (err) {
+      console.error('Local HTML extraction error:', err);
+      return res.status(500).json({ error: `Failed to extract HTML: ${err.message}` });
+    }
+  });
+
   app.get('/api/stream', gate, async (req, res) => {
     const { url, comments, comment_depth, comment_limit, frontmatter, lang, nocache, render, extractor } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
@@ -593,6 +670,19 @@ export function createApp(overrides = {}) {
     }
     cache.deleteAll();
     res.json({ ok: true });
+  });
+
+  // Friendly JSON for body-parser limit violations. Mounted last; non-413
+  // errors fall through to Express' default handler. /api/html names its
+  // 10 MB cap; other routes (e.g. /mcp at 1 MB) get the generic message.
+  app.use((err, req, res, next) => {
+    if (err?.type === 'entity.too.large') {
+      const error = req.path === '/api/html'
+        ? 'File too large (max 10 MB). / Datei zu groß (max. 10 MB).'
+        : 'Request body too large. / Anfrage zu groß.';
+      return res.status(413).json({ error });
+    }
+    next(err);
   });
 
   return app;

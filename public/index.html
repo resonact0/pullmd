@@ -1092,9 +1092,62 @@
        ========================================================= */
     body[data-lang="de"] .auth-warning [lang="en"] { display: none; }
     body[data-lang="en"] .auth-warning [lang="de"] { display: none; }
+
+    /* Drag-and-drop overlay (local HTML file conversion, #28) */
+    #drop-overlay {
+      position: fixed; inset: 0; z-index: 300; display: none;
+      align-items: center; justify-content: center;
+      background: rgba(14, 16, 22, 0.7);
+      background: color-mix(in srgb, var(--bg) 80%, transparent);
+    }
+    #drop-overlay.visible { display: flex; }
+    #drop-overlay .drop-box {
+      padding: 2.5rem 3.5rem;
+      border: 2px dashed var(--accent);
+      border-radius: 14px;
+      background: var(--bg-elev);
+      color: var(--fg);
+      font-size: 1.15rem;
+      font-weight: 600;
+      pointer-events: none;
+    }
+    /* Discoverability box: URL hint + clickable/droppable local-HTML affordance (#28) */
+    .hint-box {
+      max-width: 26rem;
+      margin: 1.5rem auto 0;
+      padding: 0.85rem 1.1rem;
+      border: 1.5px dashed color-mix(in srgb, var(--accent) 40%, transparent);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+      transition: border-color 0.15s ease;
+    }
+    .hint-box:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+    .hint-box .hint { margin-top: 0; }
+    .drop-open {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-size: 0.75rem;
+      color: var(--fg-dim);
+      cursor: pointer;
+      transition: color 0.15s ease;
+    }
+    .drop-open:hover { color: var(--fg); }
+    .drop-open svg { flex: 0 0 auto; opacity: 0.8; }
+    .aff-drag { display: none; }
+    @media (hover: hover) and (pointer: fine) {
+      .aff-drag { display: inline; }
+      .aff-open { display: none; }
+    }
   </style>
 </head>
 <body data-theme="dark" data-lang="de">
+  <div id="drop-overlay" aria-hidden="true"><div class="drop-box" data-i18n="drop.hint">HTML-Datei hier ablegen</div></div>
   <script>
     // Inline pre-paint: apply persisted/system theme + lang before first render
     (function () {
@@ -1220,10 +1273,18 @@
       <div id="result-rendered" class="hidden"></div>
     </div>
 
-    <p class="hint">
-      <span data-i18n="hint">URL einfügen, dann</span>
-      <kbd>Enter</kbd>
-    </p>
+    <div class="hint-box">
+      <p class="hint">
+        <span data-i18n="hint">URL einfügen, dann</span>
+        <kbd>Enter</kbd>
+      </p>
+      <label class="drop-open">
+        <input type="file" id="html-file-input" accept=".html,.htm,text/html" hidden>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="m7 10 5 5 5-5"></path><path d="M5 21h14"></path></svg>
+        <span class="aff-drag" data-i18n="drop.affordance">… oder HTML-Datei ziehen oder öffnen</span>
+        <span class="aff-open" data-i18n="drop.affordanceOpen">… oder HTML-Datei öffnen</span>
+      </label>
+    </div>
 
     <div id="history-section" style="display:none;">
       <div class="section-head">
@@ -1356,6 +1417,11 @@
           'err.unknown':       'Unbekannter Fehler ({code})',
           'err.empty':         'Leere Antwort vom Server.',
           'err.network':       'Netzwerkfehler: Server nicht erreichbar.',
+          'drop.hint':         'HTML-Datei hier ablegen',
+          'drop.affordance':   '… oder HTML-Datei ziehen oder öffnen',
+          'drop.affordanceOpen': '… oder HTML-Datei öffnen',
+          'err.notHtml':       'Nur HTML-Dateien (.html, .htm) werden unterstützt.',
+          'err.fileTooLarge':  'Datei zu groß (max. 10 MB).',
           'badge.chars':       '{n} chars',
           'badge.charsK':      '{n}k chars',
           'badge.comments':    '{shown}/{total} comments',
@@ -1402,6 +1468,11 @@
           'err.unknown':       'Unknown error ({code})',
           'err.empty':         'Empty response from server.',
           'err.network':       'Network error: server unreachable.',
+          'drop.hint':         'Drop HTML file here',
+          'drop.affordance':   '… or drag or open an HTML file',
+          'drop.affordanceOpen': '… or open an HTML file',
+          'err.notHtml':       'Only HTML files (.html, .htm) are supported.',
+          'err.fileTooLarge':  'File too large (max 10 MB).',
           'badge.chars':       '{n} chars',
           'badge.charsK':      '{n}k chars',
           'badge.comments':    '{shown}/{total} comments',
@@ -1901,6 +1972,100 @@
         if (e.key === 'Enter') { e.preventDefault(); handleGo(); }
       });
 
+      // --- Drag-and-drop: convert a local HTML file (hidden desktop feature, #28) ---
+      var dropOverlay = document.getElementById('drop-overlay');
+      var dragDepth = 0;
+
+      function dragHasFiles(e) {
+        var types = e.dataTransfer && e.dataTransfer.types;
+        if (!types) return false;
+        return Array.prototype.indexOf.call(types, 'Files') !== -1;
+      }
+
+      function isHtmlFile(file) {
+        if (file.type === 'text/html' || file.type === 'application/xhtml+xml') return true;
+        return /\.html?$/i.test(file.name || '');
+      }
+
+      window.addEventListener('dragenter', function (e) {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+        dragDepth++;
+        dropOverlay.classList.add('visible');
+      });
+      window.addEventListener('dragover', function (e) {
+        if (dragHasFiles(e)) e.preventDefault();
+      });
+      window.addEventListener('dragleave', function (e) {
+        if (!dragHasFiles(e)) return;
+        dragDepth = e.relatedTarget ? Math.max(0, dragDepth - 1) : 0;
+        if (dragDepth === 0) dropOverlay.classList.remove('visible');
+      });
+      window.addEventListener('drop', function (e) {
+        dragDepth = 0;
+        dropOverlay.classList.remove('visible');
+        if (!dragHasFiles(e)) return;   // let native text/URL drops (e.g. into the url input) proceed
+        e.preventDefault();
+        if (!e.dataTransfer.files || !e.dataTransfer.files.length) return;
+        var file = e.dataTransfer.files[0];
+        if (!isHtmlFile(file)) { showError(t('err.notHtml')); return; }
+        if (file.size > 10 * 1024 * 1024) { showError(t('err.fileTooLarge')); return; }
+        convertHtmlFile(file);
+      });
+
+      function convertHtmlFile(file) {
+        if (activeEventSource) { activeEventSource.close(); activeEventSource = null; }
+        pushOpenState();
+        showLoading();
+        var reader = new FileReader();
+        reader.onerror = function () { showError(t('err.network')); };
+        reader.onload = async function () {
+          try {
+            var params = new URLSearchParams({ format: 'json' });
+            if (frontmatterToggle.checked) params.set('frontmatter', 'true');
+            var res = await fetch('/api/html?' + params.toString(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/html', 'X-Client-Mode': clientMode, 'X-Filename': encodeURIComponent(file.name) },
+              body: reader.result,
+            });
+            if (!res.ok) {
+              if (res.status === 401) {
+                // A dropped file can't survive a login round-trip - bounce to
+                // login; the user re-drops afterwards.
+                location.href = '/login?next=' + encodeURIComponent('/');
+                return;
+              }
+              var msg = t('err.unknown', { code: res.status });
+              try {
+                var body = await res.json();
+                if (body.error) msg = body.error;
+              } catch (_) {}
+              showError(msg);
+              return;
+            }
+            var d = await res.json();
+            if (!d.markdown || !d.markdown.trim()) { showError(t('err.empty')); return; }
+            showResult(d.markdown, d.source || '', '');
+          } catch (err) {
+            showError(t('err.network'));
+          }
+        };
+        reader.readAsText(file);
+      }
+
+      // --- File picker: same conversion path as drop, works on mobile + desktop (#28) ---
+      var htmlFileInput = document.getElementById('html-file-input');
+      if (htmlFileInput) {
+        htmlFileInput.addEventListener('change', function () {
+          var file = htmlFileInput.files && htmlFileInput.files[0];
+          htmlFileInput.value = '';   // reset so re-picking the same file fires change
+          if (!file) return;
+          if (!isHtmlFile(file)) { showError(t('err.notHtml')); return; }
+          if (file.size > 10 * 1024 * 1024) { showError(t('err.fileTooLarge')); return; }
+          convertHtmlFile(file);
+        });
+      }
+
       copyBtn.addEventListener('click', function () {
         if (!rawMarkdown) return;
         navigator.clipboard.writeText(rawMarkdown).then(function () {
@@ -2167,7 +2332,7 @@
       // ---- Archive ----
       var mainView = document.querySelector('.card');
       var heroView = document.querySelector('.hero');
-      var resultViews = [loadingEl, errorEl, resultContainer, document.querySelector('.hint'), historySection];
+      var resultViews = [loadingEl, errorEl, resultContainer, document.querySelector('.hint-box'), historySection];
       var archiveView = document.getElementById('archive-view');
       var archiveList = document.getElementById('archive-list');
       var archiveCount = document.getElementById('archive-count');
