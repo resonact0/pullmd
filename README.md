@@ -9,7 +9,7 @@
 Self-hosted URL-to-Markdown service for humans and AI agents.
 
 <p align="center">
-  <img src="assets/screenshot.png" alt="PullMD web interface" width="800">
+  <img src="assets/screenshot-light-dark.png" alt="PullMD web interface (light and dark theme)" width="800">
 </p>
 
 PullMD takes any web URL and returns clean, readable Markdown — no
