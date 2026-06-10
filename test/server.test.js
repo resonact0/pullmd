@@ -101,6 +101,31 @@ describe('GET /api - web URLs', () => {
     assert.ok(res.body.includes('# Web Page'));
   });
 
+  it('serves media frontmatter fields (duration/views) from cache on a second request', async () => {
+    const cache = createCache(':memory:');
+    let calls = 0;
+    const app = createApp({
+      extractWeb: async () => {
+        calls++;
+        return {
+          markdown: '# Vid\n\n## Transcript\n\nhello',
+          title: 'Vid',
+          source: 'youtube',
+          metadata: { sourceUrl: 'https://youtu.be/x', quality: 0.9, ytDuration: '12:34', ytViews: '1000' },
+        };
+      },
+      cache,
+    });
+    const r1 = await request(app, '/api?url=https://youtu.be/x&frontmatter=true');
+    assert.match(r1.body, /duration: 12:34/);
+    assert.match(r1.body, /views: 1000/);
+
+    const r2 = await request(app, '/api?url=https://youtu.be/x&frontmatter=true');
+    assert.equal(calls, 1, 'second request must be served from cache');
+    assert.match(r2.body, /duration: 12:34/, 'cached serve must include duration');
+    assert.match(r2.body, /views: 1000/, 'cached serve must include views');
+  });
+
   it('forwards ?extractor= to extractWeb when valid (#17)', async () => {
     let received;
     const app = createApp({
@@ -638,6 +663,28 @@ describe('POST /mcp', () => {
     assert.match(text, /^source: trafilatura$/m);
   });
 
+  it('read_url forwards pdf_ocr to extractWeb and bypasses the cache', async () => {
+    const received = [];
+    const app = createApp({
+      cache: createCache(':memory:'),
+      extractWeb: async (url, opts) => {
+        received.push(opts);
+        return { markdown: '# OCR doc', title: 'D', source: 'pdf-ocr', metadata: { quality: 0.9, pdfPages: 3 } };
+      },
+    });
+    const headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
+    const body = (id) => JSON.stringify({
+      jsonrpc: '2.0', id, method: 'tools/call',
+      params: { name: 'read_url', arguments: { url: 'https://example.com/doc.pdf', pdf_ocr: true, frontmatter: true } },
+    });
+    await request(app, '/mcp', { method: 'POST', headers, body: body(1) });
+    const res2 = await request(app, '/mcp', { method: 'POST', headers, body: body(2) });
+    assert.equal(received.length, 2, 'pdf_ocr requests must bypass the cache (extractWeb runs every time)');
+    assert.equal(received[0].pdfOcr, true, 'pdfOcr option must be forwarded to extractWeb');
+    const text = parseSse(res2.body).result.content[0].text;
+    assert.match(text, /^pdf_pages: 3$/m);
+  });
+
   it('read_url rejects an invalid extractor value via Zod schema', async () => {
     const app = createApp({ cache: createCache(':memory:') });
     const res = await request(app, '/mcp', {
@@ -653,6 +700,49 @@ describe('POST /mcp', () => {
     // or an isError content payload is acceptable here.
     const errored = j.error || j.result?.isError;
     assert.ok(errored, 'invalid extractor enum value must be rejected');
+  });
+
+  it('read_url forwards yt_timecodes and yt_chunk to extractWeb', async () => {
+    let receivedOpts = {};
+    const app = createApp({
+      cache: createCache(':memory:'),
+      extractWeb: async (url, opts) => {
+        receivedOpts = opts;
+        return { markdown: '# YT', title: 'YT', source: 'youtube', metadata: { quality: 0.9 } };
+      },
+    });
+    const res = await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'read_url', arguments: { url: 'https://www.youtube.com/watch?v=abc', yt_timecodes: 'plain', yt_chunk: 0 } },
+      }),
+    });
+    parseSse(res.body); // assert no MCP-level error
+    assert.equal(receivedOpts.ytTimecodes, 'plain');
+    assert.equal(receivedOpts.ytChunk, 0, 'yt_chunk: 0 must be forwarded (not dropped by falsy check)');
+  });
+
+  it('read_url does not forward yt_timecodes/yt_chunk when omitted', async () => {
+    let receivedOpts = {};
+    const app = createApp({
+      cache: createCache(':memory:'),
+      extractWeb: async (url, opts) => {
+        receivedOpts = opts;
+        return { markdown: '# YT', title: 'YT', source: 'readability', metadata: { quality: 0.9 } };
+      },
+    });
+    await request(app, '/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' },
+      body: JSON.stringify({
+        jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'read_url', arguments: { url: 'https://example.com/no-yt' } },
+      }),
+    });
+    assert.equal(receivedOpts.ytTimecodes, undefined);
+    assert.equal(receivedOpts.ytChunk, undefined);
   });
 
   it('get_share embeds url, source, share_id, share_url, refreshed, age_ms in frontmatter', async () => {
@@ -941,9 +1031,15 @@ describe('DISABLE_PUBLIC_HISTORY', () => {
 
   it('exposes the flag via /api/config', async () => {
     const off = await request(createApp({ disablePublicHistory: false }), '/api/config');
-    assert.deepEqual(JSON.parse(off.body), { disablePublicHistory: false, authMode: 'disabled', authMisconfigured: false });
+    const offBody = JSON.parse(off.body);
+    assert.equal(offBody.disablePublicHistory, false);
+    assert.equal(offBody.authMode, 'disabled');
+    assert.equal(offBody.authMisconfigured, false);
     const on = await request(createApp({ disablePublicHistory: true }), '/api/config');
-    assert.deepEqual(JSON.parse(on.body), { disablePublicHistory: true, authMode: 'disabled', authMisconfigured: false });
+    const onBody = JSON.parse(on.body);
+    assert.equal(onBody.disablePublicHistory, true);
+    assert.equal(onBody.authMode, 'disabled');
+    assert.equal(onBody.authMisconfigured, false);
   });
 
   it('reads DISABLE_PUBLIC_HISTORY=true from env when no override given', async () => {
@@ -982,5 +1078,203 @@ describe('DISABLE_PUBLIC_HISTORY', () => {
     const offApp = createApp({ disablePublicHistory: false });
     const offRes = await request(offApp, '/');
     assert.ok(offRes.body.includes('window.__PULLMD_DISABLE_HISTORY__ = false'), 'expected flag=false in html');
+  });
+});
+
+describe('GET /api/config - markitdown flag', () => {
+  it('reports markitdown:false when MARKITDOWN_URL is unset', async () => {
+    const prev = process.env.MARKITDOWN_URL;
+    delete process.env.MARKITDOWN_URL;
+    const app = createApp({});
+    const res = await request(app, '/api/config');
+    assert.equal(JSON.parse(res.body).markitdown, false);
+    if (prev !== undefined) process.env.MARKITDOWN_URL = prev;
+  });
+
+  it('reports markitdown:true when MARKITDOWN_URL is set', async () => {
+    const prev = process.env.MARKITDOWN_URL;
+    process.env.MARKITDOWN_URL = 'http://markitdown:8003/convert';
+    const app = createApp({});
+    const res = await request(app, '/api/config');
+    assert.equal(JSON.parse(res.body).markitdown, true);
+    if (prev === undefined) delete process.env.MARKITDOWN_URL; else process.env.MARKITDOWN_URL = prev;
+  });
+});
+
+describe('GET /api/config - vision and stt flags', () => {
+  it('reports vision:true when PULLMD_VISION_API_KEY is set', async () => {
+    const prev = process.env.PULLMD_VISION_API_KEY;
+    process.env.PULLMD_VISION_API_KEY = 'test-key';
+    delete process.env.PULLMD_LLM_API_KEY;
+    const res = await request(createApp({}), '/api/config');
+    assert.equal(JSON.parse(res.body).vision, true);
+    if (prev === undefined) delete process.env.PULLMD_VISION_API_KEY; else process.env.PULLMD_VISION_API_KEY = prev;
+  });
+
+  it('reports stt:true when PULLMD_STT_API_KEY is set', async () => {
+    const prev = process.env.PULLMD_STT_API_KEY;
+    process.env.PULLMD_STT_API_KEY = 'test-key';
+    delete process.env.PULLMD_LLM_API_KEY;
+    const res = await request(createApp({}), '/api/config');
+    assert.equal(JSON.parse(res.body).stt, true);
+    if (prev === undefined) delete process.env.PULLMD_STT_API_KEY; else process.env.PULLMD_STT_API_KEY = prev;
+  });
+
+  it('reports vision:false and stt:false when no media keys are set', async () => {
+    const prevV = process.env.PULLMD_VISION_API_KEY;
+    const prevS = process.env.PULLMD_STT_API_KEY;
+    const prevL = process.env.PULLMD_LLM_API_KEY;
+    delete process.env.PULLMD_VISION_API_KEY;
+    delete process.env.PULLMD_STT_API_KEY;
+    delete process.env.PULLMD_LLM_API_KEY;
+    const res = await request(createApp({}), '/api/config');
+    const body = JSON.parse(res.body);
+    assert.equal(body.vision, false);
+    assert.equal(body.stt, false);
+    assert.equal(body.markitdownMedia, undefined, 'markitdownMedia must not be present');
+    if (prevV !== undefined) process.env.PULLMD_VISION_API_KEY = prevV;
+    if (prevS !== undefined) process.env.PULLMD_STT_API_KEY = prevS;
+    if (prevL !== undefined) process.env.PULLMD_LLM_API_KEY = prevL;
+  });
+
+  it('reports vision:true and stt:true when only PULLMD_LLM_API_KEY is set (shared key fallback)', async () => {
+    const prevV = process.env.PULLMD_VISION_API_KEY;
+    const prevS = process.env.PULLMD_STT_API_KEY;
+    const prevL = process.env.PULLMD_LLM_API_KEY;
+    delete process.env.PULLMD_VISION_API_KEY;
+    delete process.env.PULLMD_STT_API_KEY;
+    process.env.PULLMD_LLM_API_KEY = 'shared-key';
+    const res = await request(createApp({}), '/api/config');
+    const body = JSON.parse(res.body);
+    assert.equal(body.vision, true);
+    assert.equal(body.stt, true);
+    if (prevV !== undefined) process.env.PULLMD_VISION_API_KEY = prevV; else delete process.env.PULLMD_VISION_API_KEY;
+    if (prevS !== undefined) process.env.PULLMD_STT_API_KEY = prevS; else delete process.env.PULLMD_STT_API_KEY;
+    if (prevL !== undefined) process.env.PULLMD_LLM_API_KEY = prevL; else delete process.env.PULLMD_LLM_API_KEY;
+  });
+});
+
+describe('GET /api/config - markitdownYoutube flag', () => {
+  it('reflects MARKITDOWN_YOUTUBE', async () => {
+    const prev = process.env.MARKITDOWN_YOUTUBE; process.env.MARKITDOWN_YOUTUBE = 'true';
+    const res = await request(createApp({}), '/api/config');
+    assert.equal(JSON.parse(res.body).markitdownYoutube, true);
+    if (prev === undefined) delete process.env.MARKITDOWN_YOUTUBE; else process.env.MARKITDOWN_YOUTUBE = prev;
+  });
+});
+
+describe('GET /api/config - pdfOcr flag', () => {
+  it('reports pdfOcr:true when PULLMD_PDF_OCR_API_KEY is set', async () => {
+    const prevOcr = process.env.PULLMD_PDF_OCR_API_KEY;
+    const prevLlm = process.env.PULLMD_LLM_API_KEY;
+    process.env.PULLMD_PDF_OCR_API_KEY = 'test-ocr-key';
+    delete process.env.PULLMD_LLM_API_KEY;
+    const res = await request(createApp({}), '/api/config');
+    assert.equal(JSON.parse(res.body).pdfOcr, true);
+    if (prevOcr === undefined) delete process.env.PULLMD_PDF_OCR_API_KEY; else process.env.PULLMD_PDF_OCR_API_KEY = prevOcr;
+    if (prevLlm !== undefined) process.env.PULLMD_LLM_API_KEY = prevLlm;
+  });
+
+  it('reports pdfOcr:false when neither PULLMD_PDF_OCR_API_KEY nor PULLMD_LLM_API_KEY is set', async () => {
+    const prevOcr = process.env.PULLMD_PDF_OCR_API_KEY;
+    const prevLlm = process.env.PULLMD_LLM_API_KEY;
+    delete process.env.PULLMD_PDF_OCR_API_KEY;
+    delete process.env.PULLMD_LLM_API_KEY;
+    const res = await request(createApp({}), '/api/config');
+    assert.equal(JSON.parse(res.body).pdfOcr, false);
+    if (prevOcr !== undefined) process.env.PULLMD_PDF_OCR_API_KEY = prevOcr;
+    if (prevLlm !== undefined) process.env.PULLMD_LLM_API_KEY = prevLlm;
+  });
+
+  it('pdfOcr does NOT use the shared LLM key (reports false when only PULLMD_LLM_API_KEY is set)', async () => {
+    const prevOcr = process.env.PULLMD_PDF_OCR_API_KEY;
+    const prevLlm = process.env.PULLMD_LLM_API_KEY;
+    delete process.env.PULLMD_PDF_OCR_API_KEY;
+    process.env.PULLMD_LLM_API_KEY = 'shared-key';
+    const res = await request(createApp({}), '/api/config');
+    assert.equal(JSON.parse(res.body).pdfOcr, false);
+    if (prevOcr !== undefined) process.env.PULLMD_PDF_OCR_API_KEY = prevOcr; else delete process.env.PULLMD_PDF_OCR_API_KEY;
+    if (prevLlm !== undefined) process.env.PULLMD_LLM_API_KEY = prevLlm; else delete process.env.PULLMD_LLM_API_KEY;
+  });
+});
+
+describe('GET /api - pdf-ocr frontmatter', () => {
+  it('emits pdf_pages and source:pdf-ocr in frontmatter for pdf-ocr source', async () => {
+    const app = createApp({
+      extractWeb: async () => ({
+        markdown: '# doc.pdf\n\n| a | b |',
+        title: 'doc.pdf',
+        source: 'pdf-ocr',
+        metadata: { quality: 0.6, sourceUrl: 'https://example.com/doc.pdf', pdfPages: 2, llmModel: 'mistral-ocr-latest' },
+      }),
+    });
+    const res = await request(app, '/api?url=https://example.com/doc.pdf&pdf=ocr&frontmatter=true');
+    assert.ok(res.body.startsWith('---\n'));
+    assert.ok(res.body.includes('source: pdf-ocr'), 'expected source: pdf-ocr in frontmatter');
+    assert.ok(res.body.includes('pdf_pages:'), 'expected pdf_pages in frontmatter');
+    assert.ok(res.body.includes('llm_model:'), 'expected llm_model in frontmatter');
+  });
+});
+
+describe('GET /api - ?pdf=ocr cache bypass', () => {
+  it('?pdf=ocr bypasses the cache so OCR always runs', async () => {
+    let calls = 0;
+    const cache = createCache(':memory:');
+    const app = createApp({
+      extractWeb: async () => { calls++; return { markdown: '# Doc\n\npage', title: 'Doc', source: 'pdf-ocr', metadata: { quality: 0.6, pdfPages: 1, llmModel: 'mistral-ocr-latest' } }; },
+      cache,
+    });
+    await request(app, '/api?url=https://example.com/doc.pdf');
+    await request(app, '/api?url=https://example.com/doc.pdf&pdf=ocr');
+    assert.equal(calls, 2, 'second call with pdf=ocr must skip the cache');
+  });
+});
+
+describe('GET /api - YouTube format params', () => {
+  it('forwards yt_timecodes/yt_chunk to extractWeb and bypasses cache', async () => {
+    let opts;
+    const cache = createCache(':memory:');
+    const app = createApp({ cache, extractWeb: async (u, o) => { opts = o; return { markdown: '# V\n\nbody', title: 'V', source: 'youtube', metadata: { quality: 0.9, ytDuration: '12:34', ytViews: '1000' } }; } });
+    await request(app, '/api?url=https://youtu.be/abc123&yt_timecodes=plain&yt_chunk=0');
+    assert.equal(opts.ytTimecodes, 'plain');
+    assert.equal(opts.ytChunk, 0);
+  });
+
+  it('merges duration/views into frontmatter for youtube source', async () => {
+    const app = createApp({ extractWeb: async () => ({ markdown: '# V\n\nbody', title: 'V', source: 'youtube', metadata: { quality: 0.9, sourceUrl: 'https://www.youtube.com/watch?v=abc123', author: 'Chan', ytDuration: '12:34', ytViews: '1000' } }) });
+    const res = await request(app, '/api?url=https://youtu.be/abc123&frontmatter=true');
+    assert.ok(res.body.startsWith('---\n'));
+    assert.ok(res.body.includes('source: youtube'));
+    assert.ok(res.body.includes('duration: 12:34'));
+    assert.ok(res.body.includes('views: 1000'));
+  });
+});
+
+describe('GET /api - LLM usage + meta frontmatter', () => {
+  it('emits llm token + model + image_size in frontmatter for media source', async () => {
+    const app = createApp({ extractWeb: async () => ({ markdown: '# I\n\ncaption', title: 'I', source: 'markitdown', metadata: { quality: 0.8, sourceUrl: 'https://e/p.jpg', llmModel: 'gpt-4o-mini', llmTokens: 123, imageSize: '172x178' } }) });
+    const res = await request(app, '/api?url=https://e/p.jpg&frontmatter=true');
+    assert.ok(res.body.includes('llm_model: gpt-4o-mini'));
+    assert.ok(res.body.includes('llm_tokens: 123'));
+    assert.ok(res.body.includes('image_size: 172x178'));
+  });
+  it('emits audio_seconds for transcription results', async () => {
+    const app = createApp({ extractWeb: async () => ({ markdown: '# A\n\nx', title: 'A', source: 'markitdown', metadata: { quality: 0.8, sourceUrl: 'https://e/a.mp3', llmModel: 'whisper-1', audioSeconds: 12.3 } }) });
+    const res = await request(app, '/api?url=https://e/a.mp3&frontmatter=true');
+    assert.ok(res.body.includes('audio_seconds: 12.3'));
+    assert.ok(res.body.includes('llm_model: whisper-1'));
+  });
+  it('emits NO meta in the body or without frontmatter', async () => {
+    const app = createApp({ extractWeb: async () => ({ markdown: '# I\n\ncaption', title: 'I', source: 'markitdown', metadata: { quality: 0.8, llmModel: 'gpt-4o-mini', llmTokens: 123 } }) });
+    const res = await request(app, '/api?url=https://e/p.jpg');
+    assert.ok(!res.body.includes('llm_model'), 'no meta without frontmatter');
+    assert.ok(!res.body.includes('llm_tokens'));
+  });
+  it('emits image_size and llm_model in frontmatter for image-caption source via /api', async () => {
+    const app = createApp({ extractWeb: async () => ({ markdown: '# pic.jpg\n\nA sunny scene.', title: 'pic.jpg', source: 'image-caption', metadata: { quality: 0.5, sourceUrl: 'https://e/pic.jpg', imageSize: '2x2', llmModel: 'gpt-4o-mini', llmTokens: 99 } }) });
+    const res = await request(app, '/api?url=https://e/pic.jpg&frontmatter=true');
+    assert.ok(res.body.startsWith('---\n'));
+    assert.ok(res.body.includes('image_size: 2x2'), 'expected image_size in frontmatter');
+    assert.ok(res.body.includes('llm_model: gpt-4o-mini'), 'expected llm_model in frontmatter');
   });
 });

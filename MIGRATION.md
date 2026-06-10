@@ -1,3 +1,52 @@
+# Migrating from v2.x to v3.0.0
+
+v3.0.0 is a major release with one breaking change to the response body format. No database schema changes are required - the upgrade is a drop-in image swap plus an optional `.env` tweak if you relied on the old body format.
+
+## Breaking change: clean body by default
+
+The inline source-attribution line that previously appeared at the top of the body (`**domain** · fetched` + url, or `**filename** · fetched` for local uploads) is no longer emitted. The same applies to Reddit posts: the meta line (`**r/sub** · u/user · N ↑ · age · date` + url) is gone from the body; subreddit, author, upvotes, and publish date are available in the frontmatter instead (`subreddit`, `author`, `upvotes`, `published`). The body now opens with `# Title` and goes straight into content.
+
+The source URL, fetch date, and all extraction metadata are still available - unchanged - in the YAML frontmatter (e.g. `url`, `fetched`, `source`, `quality`). No frontmatter fields were removed.
+
+**Keep the old behavior:** add `PULLMD_SOURCE_HEADER=true` to your `.env`. The legacy inline header is restored verbatim. No other configuration changes are needed.
+
+**Plain-text callers:** if you fetch with `format=text` and relied on the inline source URL appearing in the body, either request `frontmatter=true` (the URL is in the `url:` field) or set `PULLMD_SOURCE_HEADER=true` to keep the inline header.
+
+## New: frontmatter field allowlist
+
+`PULLMD_FRONTMATTER_FIELDS` accepts a comma-separated list of field names to include in the YAML block (e.g. `title,url,source,llm_tokens`). Leave it unset to emit all fields (the v2.x default). Useful for agent pipelines where you want to trim frontmatter to just the fields you use.
+
+## Renamed: Claude Code skill bundle (`web-reader` → `pullmd`)
+
+The downloadable Claude Code skill is now named `pullmd` and served at `GET /pullmd.zip`. The old `/web-reader.zip` URL keeps working as a permanent redirect, so existing docs and scripts don't break.
+
+**If you have the old skill installed**, installing the new zip does not replace it — Claude Code would load both side by side. Remove the old one first:
+
+```bash
+rm -rf ~/.claude/skills/web-reader
+curl -O https://your-instance.example.com/pullmd.zip
+unzip pullmd.zip -d ~/.claude/skills/
+```
+
+## Pin tags
+
+Update your compose or k8s manifests to the new image tag:
+
+```yaml
+# Before
+image: aeternalabshq/pullmd:2.6.0
+# After
+image: aeternalabshq/pullmd:3.0.0
+```
+
+The MarkItDown sidecar is optional and only needed if you use document conversion, image captioning, audio transcription, or YouTube transcript features. No sidecar update is required for v3.0.0 - the markitdown sidecar API is unchanged.
+
+## Rolling back to v2.x
+
+Stop the v3.0.0 container and pin back to `aeternalabshq/pullmd:2.6.0`. The database is unchanged - v2.x will work against the same `data/cache.db` without any restores.
+
+---
+
 # Migrating from v2.2.x to v2.3.0
 
 v2.3.0 ships the OAuth 2.1 Authorization Code flow for the claude.ai web custom connector and Claude Desktop's custom-connector dialog (#6, #10). Pure additive change — existing instances keep working unchanged unless you opt in by setting `OAUTH_JWT_SECRET`.
@@ -89,7 +138,7 @@ If you don't set `PULLMD_AUTH_MODE`, nothing changes. Skip the rest.
 
 ## Legacy `PULLMD_AUTH_TOKEN`
 
-If you were using the Caddy workaround (or any other reverse-proxy bearer-token gate) with a fixed token, you can preserve it during migration by setting both `PULLMD_AUTH_MODE=single-admin` and `PULLMD_AUTH_TOKEN=<your-token>`. Requests with `Authorization: Bearer <your-token>` resolve to the admin user. This compat is **deprecated** and will be removed in v3.0 — generate a fresh `pmd_*` API key from `/settings` and migrate clients off the legacy token.
+If you were using the Caddy workaround (or any other reverse-proxy bearer-token gate) with a fixed token, you can preserve it during migration by setting both `PULLMD_AUTH_MODE=single-admin` and `PULLMD_AUTH_TOKEN=<your-token>`. Requests with `Authorization: Bearer <your-token>` resolve to the admin user. This compat is **deprecated** and slated for removal in a future major release — generate a fresh `pmd_*` API key from `/settings` and migrate clients off the legacy token.
 
 ## Resetting an admin password
 

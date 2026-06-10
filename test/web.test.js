@@ -1,6 +1,6 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractWeb } from '../lib/web.js';
+import { extractWeb, extractFile, extractHtml } from '../lib/web.js';
 import { matchRecipesAgainst } from '../lib/recipes.js';
 
 // Single-fetch: extractWeb makes exactly ONE request per call.
@@ -310,6 +310,7 @@ describe('extractWeb - error handling', () => {
 
 describe('extractWeb - output format', () => {
   it('includes title and domain in header', async () => {
+    const prev = process.env.PULLMD_SOURCE_HEADER; process.env.PULLMD_SOURCE_HEADER = 'true';
     const html = `
       <html><head>
         <title>Great Article</title>
@@ -327,6 +328,7 @@ describe('extractWeb - output format', () => {
     const result = await extractWeb('https://example.com/article', { fetch: fetcher });
     assert.ok(result.markdown.includes('# Great Article'));
     assert.ok(result.markdown.includes('example.com'));
+    if (prev === undefined) delete process.env.PULLMD_SOURCE_HEADER; else process.env.PULLMD_SOURCE_HEADER = prev;
   });
 });
 
@@ -695,5 +697,405 @@ describe('extractWeb — Hook 3 (playwright fetch options)', () => {
     await extractWeb('https://example.com/', { fetch: fetcher, renderClient, recipes });
     assert.ok(typeof renderOpts.userAgent === 'string', 'userAgent should be a string');
     assert.match(renderOpts.userAgent, /Mozilla\//, 'userAgent should look like a real UA string');
+  });
+});
+
+describe('extractWeb - markitdown document routing', () => {
+  function pdfFetch(bytes = Buffer.from('%PDF-1.4 fake')) {
+    return async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'application/pdf' : null) },
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    });
+  }
+
+  it('routes application/pdf to the markitdown client and tags source=markitdown', async () => {
+    const prev = process.env.PULLMD_SOURCE_HEADER; process.env.PULLMD_SOURCE_HEADER = 'true';
+    let received;
+    const markitdownClient = async (buf, o) => { received = { len: buf.length, ...o }; return { markdown: 'PDF body text here, long enough.', title: 'My PDF' }; };
+    const result = await extractWeb('https://example.com/doc.pdf?token=abc', { fetch: pdfFetch(), markitdownClient });
+    assert.equal(result.source, 'markitdown');
+    assert.ok(result.markdown.includes('# My PDF'));
+    assert.ok(result.markdown.includes('PDF body text here'));
+    assert.ok(result.markdown.includes('example.com'));
+    assert.equal(received.contentType, 'application/pdf');
+    assert.equal(received.filename, 'doc.pdf');
+    if (prev === undefined) delete process.env.PULLMD_SOURCE_HEADER; else process.env.PULLMD_SOURCE_HEADER = prev;
+  });
+
+  it('routes by URL extension when content-type is octet-stream', async () => {
+    const octetFetch = async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'application/octet-stream' : null) },
+      arrayBuffer: async () => Buffer.from('DOCX').buffer,
+    });
+    let called = false;
+    const markitdownClient = async () => { called = true; return { markdown: 'docx text content', title: 'D' }; };
+    const result = await extractWeb('https://example.com/report.docx', { fetch: octetFetch, markitdownClient });
+    assert.equal(called, true);
+    assert.equal(result.source, 'markitdown');
+  });
+
+  it('throws when markitdown is the target but the sidecar is unavailable', async () => {
+    await assert.rejects(
+      () => extractWeb('https://example.com/doc.pdf', { fetch: pdfFetch(), markitdownClient: async () => null }),
+      /markitdown/i,
+    );
+  });
+
+  it('does NOT route text/html to markitdown', async () => {
+    const htmlFetch = async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null) },
+      arrayBuffer: async () => Buffer.from('<html><head><title>T</title></head><body><article><p>Plenty of real article body text that is well over the two hundred character minimum so Readability keeps it as the main content of the page for sure.</p></article></body></html>').buffer,
+    });
+    let called = false;
+    const result = await extractWeb('https://example.com/page', { fetch: htmlFetch, markitdownClient: async () => { called = true; return { markdown: 'x', title: 'x' }; } });
+    assert.equal(called, false);
+    assert.notEqual(result.source, 'markitdown');
+  });
+});
+
+describe('extractFile - local document upload', () => {
+  it('converts bytes via markitdown and shows the filename in the header', async () => {
+    const prev = process.env.PULLMD_SOURCE_HEADER; process.env.PULLMD_SOURCE_HEADER = 'true';
+    const result = await extractFile(Buffer.from('PDFBYTES'), {
+      filename: 'report.pdf',
+      contentType: 'application/pdf',
+      markitdownClient: async (buf, o) => { assert.equal(o.contentType, 'application/pdf'); return { markdown: 'Converted body text.', title: 'Report' }; },
+    });
+    assert.equal(result.source, 'markitdown');
+    assert.ok(result.markdown.includes('# Report'));
+    assert.ok(result.markdown.includes('**report.pdf**'));
+    assert.ok(!result.markdown.includes('http'));   // no source URL for local files
+    assert.equal(result.metadata.sourceUrl, null);
+    assert.ok(result.metadata.contentLength > 0);
+    if (prev === undefined) delete process.env.PULLMD_SOURCE_HEADER; else process.env.PULLMD_SOURCE_HEADER = prev;
+  });
+
+  it('throws when the sidecar is unavailable', async () => {
+    await assert.rejects(
+      () => extractFile(Buffer.from('x'), { filename: 'a.pdf', markitdownClient: async () => null }),
+      /markitdown/i,
+    );
+  });
+
+  it('returns empty markdown and falls back to the filename when the sidecar yields only whitespace', async () => {
+    const result = await extractFile(Buffer.from('x'), {
+      filename: 'empty.pdf',
+      markitdownClient: async () => ({ markdown: '   \n  ', title: null }),
+    });
+    assert.equal(result.metadata.contentLength, 0);
+    assert.equal(result.title, 'empty.pdf');
+  });
+
+  it('falls back to markitdown when the vision provider throws on an uploaded image', async () => {
+    let called = false;
+    const result = await extractFile(Buffer.from('JPEGBYTES'), {
+      filename: 'photo.jpg',
+      contentType: 'image/jpeg',
+      captionFn: async () => { throw new Error('boom'); },
+      markitdownClient: async () => { called = true; return { markdown: 'exif only', title: 'photo' }; },
+    });
+    assert.equal(called, true, 'markitdown must be the fallback when captionFn throws');
+    assert.equal(result.source, 'markitdown');
+  });
+});
+
+describe('extractWeb - media routing via Node LLM layer', () => {
+  function imgFetch() {
+    return async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'image/jpeg' : null) },
+      arrayBuffer: async () => Buffer.from('JPEGBYTES').buffer,
+    });
+  }
+
+  it('falls through to normal extraction when no vision provider is configured (captionFn returns null)', async () => {
+    let called = false;
+    const result = await extractWeb('https://example.com/photo.jpg', {
+      fetch: imgFetch(),
+      captionFn: async () => null,
+      markitdownClient: async () => { called = true; return { markdown: 'x', title: 'x' }; },
+    });
+    assert.equal(called, false, 'markitdown must not be called for an image when captionFn returns null');
+    assert.notEqual(result.source, 'markitdown');
+  });
+
+  it('routes images to the vision adapter (source=image-caption) when captionFn is set', async () => {
+    const result = await extractWeb('https://example.com/photo.jpg', {
+      fetch: imgFetch(),
+      captionFn: async () => ({ markdown: 'A caption of the photo.', usage: null }),
+    });
+    assert.equal(result.source, 'image-caption');
+    assert.ok(result.markdown.includes('A caption of the photo.'));
+  });
+
+  it('falls through to normal extraction when the vision provider throws (no 502)', async () => {
+    const result = await extractWeb('https://example.com/photo.jpg', {
+      fetch: imgFetch(),
+      captionFn: async () => { throw new Error('rate limited (429)'); },
+    });
+    assert.notEqual(result.source, 'image-caption');
+    assert.ok(result.source, 'extraction must resolve to some source, not reject');
+  });
+});
+
+describe('extractWeb - YouTube routing', () => {
+  function ytFetch() {
+    return async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null) },
+      arrayBuffer: async () => Buffer.from('<html><head><title>Vid - YouTube</title></head><body>p</body></html>').buffer,
+    });
+  }
+
+  it('routes youtu.be with normalized sourceUrl + format opts when enabled', async () => {
+    const prev = process.env.MARKITDOWN_YOUTUBE; process.env.MARKITDOWN_YOUTUBE = 'true';
+    let received;
+    const result = await extractWeb('https://youtu.be/abc123', {
+      fetch: ytFetch(), ytTimecodes: 'plain', ytChunk: 0,
+      youtubeClient: async (html, o) => { received = o; return { markdown: '## Transcript\n\nhello', title: 'My Video', fields: { channel: 'Chan', duration: '12:34', views: '1000' } }; },
+    });
+    assert.equal(result.source, 'youtube');
+    assert.equal(received.sourceUrl, 'https://www.youtube.com/watch?v=abc123');
+    assert.equal(received.timecodes, 'plain');
+    assert.equal(received.chunk, 0);
+    assert.equal(result.source, 'youtube');
+    assert.equal(received.sourceUrl, 'https://www.youtube.com/watch?v=abc123');
+    assert.ok(result.markdown.includes('# My Video'));
+    assert.ok(!result.markdown.includes('**Channel:**'), 'meta line must not be in the body');
+    assert.equal(result.metadata.author, 'Chan');
+    assert.equal(result.metadata.ytDuration, '12:34');
+    assert.equal(result.metadata.ytViews, '1000');
+    if (prev === undefined) delete process.env.MARKITDOWN_YOUTUBE; else process.env.MARKITDOWN_YOUTUBE = prev;
+  });
+
+  it('falls back to the HTML pipeline when the youtube sidecar is down', async () => {
+    const prev = process.env.MARKITDOWN_YOUTUBE; process.env.MARKITDOWN_YOUTUBE = 'true';
+    const result = await extractWeb('https://www.youtube.com/watch?v=abc123', { fetch: ytFetch(), youtubeClient: async () => null });
+    assert.notEqual(result.source, 'youtube');
+    if (prev === undefined) delete process.env.MARKITDOWN_YOUTUBE; else process.env.MARKITDOWN_YOUTUBE = prev;
+  });
+
+  it('does NOT route YouTube when disabled', async () => {
+    const prev = process.env.MARKITDOWN_YOUTUBE; delete process.env.MARKITDOWN_YOUTUBE;
+    let called = false;
+    const result = await extractWeb('https://www.youtube.com/watch?v=abc123', { fetch: ytFetch(), youtubeClient: async () => { called = true; return { markdown: 'x', title: 'x' }; } });
+    assert.equal(called, false);
+    assert.notEqual(result.source, 'youtube');
+    if (prev !== undefined) process.env.MARKITDOWN_YOUTUBE = prev;
+  });
+});
+
+describe('extractWeb - LLM usage metadata', () => {
+  function imgFetch() {
+    return async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'image/jpeg' : null) },
+      arrayBuffer: async () => Buffer.from('JPEGBYTES').buffer,
+    });
+  }
+  it('maps vision adapter usage/imageSize into metadata (source=image-caption)', async () => {
+    const result = await extractWeb('https://example.com/p.jpg', {
+      fetch: imgFetch(),
+      captionFn: async () => ({ markdown: '## Description\n\na caption', usage: { model: 'gpt-4o-mini', total_tokens: 123 }, imageSize: '172x178' }),
+    });
+    assert.equal(result.source, 'image-caption');
+    assert.equal(result.metadata.llmModel, 'gpt-4o-mini');
+    assert.equal(result.metadata.llmTokens, 123);
+    assert.equal(result.metadata.imageSize, '172x178');
+  });
+});
+
+describe('formatHeader - clean body (default) vs legacy', () => {
+  it('default body is just the H1 title (no domain/date/url line)', async () => {
+    const prev = process.env.PULLMD_SOURCE_HEADER; delete process.env.PULLMD_SOURCE_HEADER;
+    const html = '<html><head><title>T</title></head><body><article><p>Plenty of real article body text well over the two hundred character minimum so Readability keeps it as the main content of this page for certain, yes indeed it does.</p></article></body></html>';
+    const r = await extractHtml(html, { url: 'https://example.com/x' });
+    assert.ok(r.markdown.startsWith('# T'));
+    assert.ok(!r.markdown.includes('example.com'), 'no domain line in clean body');
+    assert.ok(!r.markdown.includes('https://example.com/x'), 'no url line in clean body');
+    if (prev === undefined) delete process.env.PULLMD_SOURCE_HEADER; else process.env.PULLMD_SOURCE_HEADER = prev;
+  });
+
+  it('PULLMD_SOURCE_HEADER=true restores the legacy domain/url header', async () => {
+    const prev = process.env.PULLMD_SOURCE_HEADER; process.env.PULLMD_SOURCE_HEADER = 'true';
+    const html = '<html><head><title>T</title></head><body><article><p>Plenty of real article body text well over the two hundred character minimum so Readability keeps it as the main content of this page for certain, yes indeed it does.</p></article></body></html>';
+    const r = await extractHtml(html, { url: 'https://example.com/x' });
+    assert.ok(r.markdown.includes('example.com'));
+    assert.ok(r.markdown.includes('https://example.com/x'));
+    if (prev === undefined) delete process.env.PULLMD_SOURCE_HEADER; else process.env.PULLMD_SOURCE_HEADER = prev;
+  });
+});
+
+describe('media routing → Node LLM layer', () => {
+  const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000154a24f3f0000000049454e44ae426082', 'hex');
+
+  it('extractFile routes an image to the vision adapter (source=image-caption)', async () => {
+    const r = await extractFile(PNG, {
+      filename: 'pic.png', contentType: 'image/png',
+      captionFn: async () => ({ markdown: '## Description\n\nA cat.', usage: { model: 'gpt-4o-mini', total_tokens: 50 }, imageSize: '1x1' }),
+      transcribeFn: async () => { throw new Error('should not transcribe'); },
+      markitdownClient: async () => { throw new Error('should not call markitdown'); },
+    });
+    assert.equal(r.source, 'image-caption');
+    assert.ok(r.markdown.startsWith('# '));
+    assert.ok(r.markdown.includes('A cat.'));
+    assert.equal(r.metadata.imageSize, '1x1');
+    assert.equal(r.metadata.llmModel, 'gpt-4o-mini');
+  });
+
+  it('extractFile routes audio to the STT adapter (source=audio-transcript)', async () => {
+    const r = await extractFile(Buffer.from('AUDIO'), {
+      filename: 'clip.mp3', contentType: 'audio/mpeg',
+      transcribeFn: async () => ({ markdown: '### Audio Transcript\n\nHi.', usage: { model: 'whisper-1' }, audioSeconds: 4.2 }),
+      captionFn: async () => { throw new Error('no'); },
+      markitdownClient: async () => { throw new Error('no'); },
+    });
+    assert.equal(r.source, 'audio-transcript');
+    assert.ok(r.markdown.includes('Hi.'));
+    assert.equal(r.metadata.audioSeconds, 4.2);
+  });
+
+  it('extractFile falls through to markitdown when the image adapter is unconfigured (returns null)', async () => {
+    const r = await extractFile(PNG, {
+      filename: 'pic.png', contentType: 'image/png',
+      captionFn: async () => null,
+      markitdownClient: async () => ({ markdown: 'EXIF only', title: 'pic' }),
+    });
+    assert.equal(r.source, 'markitdown');
+    assert.ok(r.markdown.includes('EXIF only'));
+  });
+
+  it('extractFile still routes a PDF to markitdown (source=markitdown)', async () => {
+    const r = await extractFile(Buffer.from('%PDF-1.4'), {
+      filename: 'doc.pdf', contentType: 'application/pdf',
+      captionFn: async () => { throw new Error('no'); },
+      markitdownClient: async () => ({ markdown: 'Doc body', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+});
+
+describe('extractWeb - media null-fallthrough single body read (regression)', () => {
+  it('image URL with no provider falls through to normal extraction without double-reading the body', async () => {
+    const sv = process.env.PULLMD_VISION_API_KEY; delete process.env.PULLMD_VISION_API_KEY;
+    const html = '<html><head><title>Img Page</title></head><body><article><p>'
+      + 'Plenty of real article text well over the two hundred character minimum so Readability keeps this as the main content of the page, yes indeed it certainly does for sure.'
+      + '</p></article></body></html>';
+    let reads = 0;
+    const bytes = Buffer.from(html);
+    const onceFetch = async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'image/png' : null) },
+      arrayBuffer: async () => {
+        if (reads++ > 0) throw new TypeError('body used already');
+        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      },
+    });
+    // image content-type, captionFn returns null (no provider) → must fall through, not crash
+    const r = await extractWeb('https://example.com/pic.png', { fetch: onceFetch, captionFn: async () => null });
+    assert.ok(r.markdown.startsWith('# '));
+    if (sv === undefined) delete process.env.PULLMD_VISION_API_KEY; else process.env.PULLMD_VISION_API_KEY = sv;
+  });
+
+  it('audio URL with no provider falls through to normal extraction without double-reading the body', async () => {
+    const sv = process.env.PULLMD_STT_API_KEY; delete process.env.PULLMD_STT_API_KEY;
+    const html = '<html><head><title>Audio Page</title></head><body><article><p>'
+      + 'Plenty of real article text well over the two hundred character minimum so Readability keeps this as the main content of the page, yes indeed it certainly does for sure.'
+      + '</p></article></body></html>';
+    let reads = 0;
+    const bytes = Buffer.from(html);
+    const onceFetch = async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'audio/mpeg' : null) },
+      arrayBuffer: async () => { if (reads++ > 0) throw new TypeError('body used already'); return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); },
+    });
+    // audio content-type, transcribeFn returns null (no provider) → must fall through, not crash
+    const r = await extractWeb('https://example.com/clip.mp3', { fetch: onceFetch, transcribeFn: async () => null });
+    assert.ok(r.markdown.startsWith('# '));
+    if (sv === undefined) delete process.env.PULLMD_STT_API_KEY; else process.env.PULLMD_STT_API_KEY = sv;
+  });
+});
+
+describe('PDF-OCR routing (opt-in)', () => {
+  const PDF = Buffer.from('%PDF-1.4 fake');
+  const pdfFetch = (bytes = PDF) => async () => ({
+    ok: true, status: 200,
+    headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'application/pdf' : null) },
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  });
+
+  it('extractFile routes a PDF to OCR when pdfOcr + provider (source=pdf-ocr)', async () => {
+    const r = await extractFile(PDF, {
+      filename: 'doc.pdf', contentType: 'application/pdf', pdfOcr: true,
+      ocrFn: async () => ({ markdown: '# Doc\n\n| a | b |', usage: { model: 'mistral-ocr-latest' }, pdfPages: 3 }),
+      markitdownClient: async () => { throw new Error('should not call markitdown'); },
+    });
+    assert.equal(r.source, 'pdf-ocr');
+    assert.ok(r.markdown.includes('| a | b |'));
+    assert.equal(r.metadata.pdfPages, 3);
+    assert.equal(r.metadata.llmModel, 'mistral-ocr-latest');
+  });
+
+  it('extractFile PDF falls back to markitdown when pdfOcr off', async () => {
+    const r = await extractFile(PDF, {
+      filename: 'doc.pdf', contentType: 'application/pdf',
+      ocrFn: async () => { throw new Error('should not OCR'); },
+      markitdownClient: async () => ({ markdown: 'plain doc', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+
+  it('extractFile PDF falls back to markitdown when OCR returns null (unconfigured)', async () => {
+    const r = await extractFile(PDF, {
+      filename: 'doc.pdf', contentType: 'application/pdf', pdfOcr: true,
+      ocrFn: async () => null,
+      markitdownClient: async () => ({ markdown: 'plain doc', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+
+  it('extractFile PDF falls back to markitdown when OCR throws', async () => {
+    const r = await extractFile(PDF, {
+      filename: 'doc.pdf', contentType: 'application/pdf', pdfOcr: true,
+      ocrFn: async () => { throw new Error('ocr 429'); },
+      markitdownClient: async () => ({ markdown: 'plain doc', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+
+  it('extractWeb routes a PDF URL to OCR when pdfOcr + provider (source=pdf-ocr)', async () => {
+    const r = await extractWeb('https://example.com/doc.pdf', {
+      fetch: pdfFetch(), pdfOcr: true,
+      ocrFn: async () => ({ markdown: '# Web Doc\n\ntable', usage: { model: 'mistral-ocr-latest' }, pdfPages: 1 }),
+    });
+    assert.equal(r.source, 'pdf-ocr');
+    assert.ok(r.markdown.includes('table'));
+  });
+
+  it('extractWeb PDF default via recipe fetch.pdf=ocr (no query opt-in)', async () => {
+    const recipes = [{ name: 'r', host: 'example.com', path: '/**', preprocess: [], select: { remove: [] }, fetch: { pdf: 'ocr' } }];
+    const r = await extractWeb('https://example.com/doc.pdf', {
+      fetch: pdfFetch(), recipes,
+      ocrFn: async () => ({ markdown: 'recipe ocr', usage: { model: 'mistral-ocr-latest' }, pdfPages: 1 }),
+    });
+    assert.equal(r.source, 'pdf-ocr');
+  });
+
+  it('extractWeb routes a PDF URL with a query string + octet-stream content-type to OCR', async () => {
+    const bytes = Buffer.from('%PDF-1.4 fake');
+    const octetPdfFetch = async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'application/octet-stream' : null) },
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    });
+    const r = await extractWeb('https://example.com/report.pdf?download=1', {
+      fetch: octetPdfFetch, pdfOcr: true,
+      ocrFn: async () => ({ markdown: 'ocr body', usage: { model: 'mistral-ocr-latest' }, pdfPages: 1 }),
+    });
+    assert.equal(r.source, 'pdf-ocr');
   });
 });
