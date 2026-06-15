@@ -458,7 +458,7 @@
     }
     .badge.neutral { background: var(--border); color: var(--fg-muted); }
 
-    #copy-btn, #permalink-copy-btn {
+    #copy-btn, #permalink-copy-btn, #share-btn {
       padding: 0.4375rem 0.875rem;
       font-size: 0.8125rem;
       font-weight: 500;
@@ -474,16 +474,17 @@
       align-items: center;
       gap: 0.375rem;
     }
-    #copy-btn:hover, #permalink-copy-btn:hover {
+    #copy-btn:hover, #permalink-copy-btn:hover, #share-btn:hover {
       border-color: var(--accent);
       color: var(--accent);
     }
-    #copy-btn:active, #permalink-copy-btn:active { transform: scale(0.97); }
-    #copy-btn.copied, #permalink-copy-btn.copied {
+    #copy-btn:active, #permalink-copy-btn:active, #share-btn:active { transform: scale(0.97); }
+    #copy-btn.copied, #permalink-copy-btn.copied, #share-btn.copied {
       background: var(--good-bg);
       border-color: var(--good);
       color: var(--good);
     }
+    .result-actions { display: inline-flex; align-items: center; gap: 0.375rem; }
 
     .permalink-bar {
       display: none;
@@ -1269,10 +1270,16 @@
           <button type="button" data-mode="raw" class="active" role="tab" aria-selected="true">Raw</button>
           <button type="button" data-mode="rendered" role="tab" aria-selected="false">Rendered</button>
         </div>
-        <button id="copy-btn">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          <span class="label" data-i18n="copy">Kopieren</span>
-        </button>
+        <div class="result-actions">
+          <button id="copy-btn">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span class="label" data-i18n="copy">Kopieren</span>
+          </button>
+          <button id="share-btn" type="button" style="display:none;">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+            <span class="label" data-i18n="share.btn">Teilen</span>
+          </button>
+        </div>
       </div>
       <pre id="result"></pre>
       <div id="result-rendered" class="hidden"></div>
@@ -1393,6 +1400,8 @@
           'share':             'Share',
           'copy':              'Kopieren',
           'copied':            'Kopiert!',
+          'share.btn':         'Teilen',
+          'shared':            'Geteilt!',
           'hint':              'URL einfügen, dann',
           'section.recent':    'Letzte Abrufe',
           'archive.link':      'Archiv →',
@@ -1449,6 +1458,8 @@
           'share':             'Share',
           'copy':              'Copy',
           'copied':            'Copied!',
+          'share.btn':         'Share',
+          'shared':            'Shared!',
           'hint':              'Paste URL, then',
           'section.recent':    'Recent fetches',
           'archive.link':      'Archive →',
@@ -1629,12 +1640,15 @@
       const resultRenderedEl = document.getElementById('result-rendered');
       const viewToggleEl = document.getElementById('view-toggle');
       const copyBtn = document.getElementById('copy-btn');
+      const shareBtn = document.getElementById('share-btn');
       const permalinkBar = document.getElementById('permalink-bar');
       const permalinkUrlEl = document.getElementById('permalink-url');
       const permalinkCopyBtn = document.getElementById('permalink-copy-btn');
 
       var PERMALINK_BASE = window.location.origin + '/s/';
       var rawMarkdown = '';
+      var rawBody = '';
+      var rawFrontmatter = '';
 
       var VIEW_MODE_KEY = 'pullmd-view-mode';
       var viewMode = 'raw';
@@ -1742,6 +1756,7 @@
       var commentsBadge = document.getElementById('comments-badge');
       var sourceColors = {
         reddit:      { bg: '#FF4500', color: '#fff' },
+        hackernews:  { bg: '#FF6600', color: '#fff' },
         cloudflare:  { bg: '#F6821F', color: '#fff' },
         readability: { bg: '#2a6a3a', color: '#6bff6b' },
       };
@@ -1776,13 +1791,46 @@
         }
       }
 
+      // Frontmatter is a pure leading YAML block; the body after it is identical
+      // whether or not frontmatter was requested. The PWA always fetches WITH it,
+      // keeps body + block apart, and lets the toggle swap the view client-side —
+      // no re-pull. Mirrors the server's own block regex (lib/frontmatter.js).
+      function splitFrontmatter(md) {
+        var m = /^---\n([\s\S]*?)\n---\n+/.exec(md);
+        // Require the first inner line to look like a YAML key, so a body that
+        // merely opens with a `---` rule is never mis-detected as frontmatter.
+        if (m && /^[A-Za-z_][\w-]*\s*:/.test(m[1])) {
+          return { frontmatter: m[0], body: md.slice(m[0].length) };
+        }
+        return { frontmatter: '', body: md };
+      }
+
+      function setCharsBadge(len) {
+        charsBadge.textContent = len >= 1000
+          ? t('badge.charsK', { n: (len / 1000).toFixed(1) })
+          : t('badge.chars', { n: len });
+        charsBadge.style.display = 'inline-block';
+      }
+
+      // Recompute the visible output from the stored body + frontmatter for the
+      // current toggle state. Runs on initial render and on every toggle flip.
+      function applyFrontmatterView() {
+        rawMarkdown = (frontmatterToggle.checked && rawFrontmatter)
+          ? rawFrontmatter + rawBody
+          : rawBody;
+        renderMarkdownWithImages(resultEl, rawMarkdown);
+        renderedStale = true;
+        applyViewMode();
+        setCharsBadge(rawMarkdown.length);
+      }
+
       function showResult(text, source, shareId) {
         hideLoading();
         errorEl.classList.remove('visible');
-        rawMarkdown = text;
-        renderMarkdownWithImages(resultEl, text);
-        renderedStale = true;
-        applyViewMode();
+        var parts = splitFrontmatter(text);
+        rawFrontmatter = parts.frontmatter;
+        rawBody = parts.body;
+        applyFrontmatterView();
         resultContainer.classList.add('visible');
         // Bring the result into view when triggered from a list entry deeper
         // down the page (history / archive). No-op when already scrolled top.
@@ -1791,6 +1839,8 @@
         }
         copyBtn.querySelector('.label').textContent = t('copy');
         copyBtn.classList.remove('copied');
+        shareBtn.querySelector('.label').textContent = t('share.btn');
+        shareBtn.classList.remove('copied');
         if (source) {
           var sc = sourceColors[source] || { bg: 'var(--border)', color: 'var(--fg-muted)' };
           sourceBadge.textContent = source;
@@ -1800,13 +1850,8 @@
         } else {
           sourceBadge.style.display = 'none';
         }
-        var len = text.length;
-        charsBadge.textContent = len >= 1000
-          ? t('badge.charsK', { n: (len / 1000).toFixed(1) })
-          : t('badge.chars', { n: len });
-        charsBadge.style.display = 'inline-block';
 
-        var commentsMatch = text.match(/## (?:Kommentare|Comments) \((\d+) (?:von|of) (\d+)\)/);
+        var commentsMatch = rawBody.match(/## (?:Kommentare|Comments) \((\d+) (?:von|of) (\d+)\)/);
         if (commentsMatch) {
           commentsBadge.textContent = t('badge.comments', { shown: commentsMatch[1], total: commentsMatch[2] });
           commentsBadge.style.display = 'inline-block';
@@ -1845,6 +1890,11 @@
       });
       frontmatterToggle.addEventListener('change', function () {
         try { localStorage.setItem('pullmd-frontmatter', String(frontmatterToggle.checked)); } catch (e) {}
+        // Instantly re-render an already-shown result with/without frontmatter —
+        // no re-pull needed (body + block are already in memory). Skip when no
+        // result is shown, or when there's no frontmatter block to add/remove
+        // (toggling would be a byte-identical no-op). Preference still persists.
+        if (rawFrontmatter && resultContainer.classList.contains('visible')) applyFrontmatterView();
       });
       ocrToggle.addEventListener('change', function () {
         try { localStorage.setItem('pullmd-pdf-ocr', String(ocrToggle.checked)); } catch (e) {}
@@ -1864,7 +1914,9 @@
         if (!withComments) params.set('comments', 'false');
         const depth = parseInt(depthInput.value, 10);
         if (withComments && depth && depth !== 3) params.set('comment_depth', String(depth));
-        if (frontmatterToggle.checked) params.set('frontmatter', 'true');
+        // Always fetch WITH frontmatter; the toggle only controls client-side
+        // display (applyFrontmatterView), so flipping it needs no re-pull.
+        params.set('frontmatter', 'true');
         if (ocrToggle.checked) params.set('pdf', 'ocr');
         params.set('lang', getLang());
         if (clientMode) params.set('client_mode', clientMode);
@@ -2087,7 +2139,8 @@
         reader.onload = async function () {
           try {
             var params = new URLSearchParams({ format: 'json' });
-            if (frontmatterToggle.checked) params.set('frontmatter', 'true');
+            // Always fetch WITH frontmatter; the toggle swaps the view client-side.
+            params.set('frontmatter', 'true');
             var res = await fetch('/api/html?' + params.toString(), {
               method: 'POST',
               headers: { 'Content-Type': 'text/html', 'X-Client-Mode': clientMode, 'X-Filename': encodeURIComponent(file.name) },
@@ -2127,7 +2180,8 @@
         reader.onload = async function () {
           try {
             var params = new URLSearchParams({ format: 'json' });
-            if (frontmatterToggle.checked) params.set('frontmatter', 'true');
+            // Always fetch WITH frontmatter; the toggle swaps the view client-side.
+            params.set('frontmatter', 'true');
             if (ocrToggle.checked && /\.pdf$/i.test(file.name || '')) params.set('pdf', 'ocr');
             var res = await fetch('/api/file?' + params.toString(), {
               method: 'POST',
@@ -2191,6 +2245,36 @@
           sel.addRange(range);
         });
       });
+
+      // Web Share API: reveal + wire the share button only where supported
+      // (e.g. mobile, Safari, Chrome on Win/ChromeOS). Elsewhere (Firefox
+      // desktop) it stays hidden; the copy button beside it remains.
+      if (navigator.share) {
+        shareBtn.style.display = '';
+        var flashShare = function (doneKey) {
+          shareBtn.querySelector('.label').textContent = t(doneKey);
+          shareBtn.classList.add('copied');
+          setTimeout(function () {
+            shareBtn.querySelector('.label').textContent = t('share.btn');
+            shareBtn.classList.remove('copied');
+          }, 2000);
+        };
+        shareBtn.addEventListener('click', function () {
+          if (!rawMarkdown) return;
+          navigator.share({ text: rawMarkdown }).then(function () {
+            flashShare('shared');
+          }).catch(function (err) {
+            // AbortError = user dismissed the share sheet → nothing to do.
+            // Any other rejection (blocked by permissions policy, payload
+            // refused, OS failure) → fall back to clipboard so the content
+            // is never silently lost.
+            if (err && err.name === 'AbortError') return;
+            navigator.clipboard.writeText(rawMarkdown)
+              .then(function () { flashShare('copied'); })
+              .catch(function () {});
+          });
+        });
+      }
 
       permalinkCopyBtn.addEventListener('click', function () {
         var url = permalinkUrlEl.textContent;
