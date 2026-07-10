@@ -366,7 +366,10 @@ would otherwise be removed as chrome.
 
 Frontmatter field extraction (both JSON-LD and selector sources) runs **after**
 `preprocess` actions on the same HTML, so an element removed by a `preprocess`
-action is invisible to selector and JSON-LD sources.
+action is invisible to selector and JSON-LD sources. In particular, don't aim a
+`preprocess` removal at a broad wrapper that happens to contain the
+`<script type="application/ld+json">` block (or an element a frontmatter selector
+reads) — the field silently vanishes from the output with no error.
 
 ### Field-name rules
 
