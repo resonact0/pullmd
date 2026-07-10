@@ -2,6 +2,10 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../server.js';
 import { createCache } from '../lib/cache.js';
+import { loadRecipes } from '../lib/recipes.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 async function request(app, path, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -170,6 +174,34 @@ describe('POST /api/html - size limit', () => {
     const json = JSON.parse(res.body);
     assert.ok(!json.error.includes('10 MB'), 'must not claim a 10 MB limit on /mcp');
     assert.ok(json.error.includes('too large'));
+  });
+});
+
+describe('POST /api/html - recipe frontmatter (real extractHtml path, no override)', () => {
+  it('injects a recipe-defined frontmatter field extracted from JSON-LD in uploaded HTML', async () => {
+    const tmpFile = path.join(os.tmpdir(), `recipes-api-html-${Date.now()}-${Math.random().toString(16).slice(2)}.json`);
+    fs.writeFileSync(tmpFile, JSON.stringify([{
+      name: 'html-upload-fm', host: 'example.com',
+      frontmatter: {
+        jsonld: { type: 'Article' },
+        fields: { rating: { jsonld: 'aggregateRating.ratingValue' } },
+      },
+    }]));
+    loadRecipes({ defaultPath: tmpFile, userPath: null });
+    try {
+      const app = createApp({});
+      const html = `<html><head><title>Uploaded</title>
+        <script type="application/ld+json">${JSON.stringify({
+          '@type': 'Article', aggregateRating: { ratingValue: '4.8' },
+        })}</script>
+        </head><body><article><h1>Uploaded</h1><p>${LONG_PARAGRAPH}</p></article></body></html>`;
+      const res = await post(app, '/api/html?url=https://example.com/upload&frontmatter=true', html);
+      assert.equal(res.status, 200, res.body);
+      assert.match(res.body, /rating: '?4\.8'?/);
+    } finally {
+      fs.unlinkSync(tmpFile);
+      loadRecipes({}); // restore module recipe state for any later test in this file
+    }
   });
 });
 

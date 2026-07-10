@@ -963,6 +963,7 @@ export function createApp(overrides = {}) {
       loaded:   status.loaded,
       rejected: status.rejected,
       sources:  status.sources,
+      filteredFrontmatterFields: status.filteredFrontmatterFields || [],
     });
   });
 
