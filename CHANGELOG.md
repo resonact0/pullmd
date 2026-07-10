@@ -9,7 +9,7 @@ Self-hosters should consult [`MIGRATION.md`](./MIGRATION.md) when upgrading acro
 
 ---
 
-## [Unreleased]
+## [3.5.0] - 2026-07-10
 
 ### Added
 
