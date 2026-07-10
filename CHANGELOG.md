@@ -16,6 +16,10 @@ Self-hosters should consult [`MIGRATION.md`](./MIGRATION.md) when upgrading acro
 - **Recipe-defined frontmatter fields.** Site recipes can now inject custom frontmatter fields via a new `frontmatter` block, sourced from a page's embedded JSON-LD (`<script type="application/ld+json">`, selected by schema.org `@type` and resolved with a dot-path) or from CSS selectors. Field names are validated (letter-led, ≤ 64 chars); pipeline-computed names (provenance, share/cache bookkeeping, media/LLM-usage) are reserved and reject the recipe, while metadata-derived names (`title`, `author`, `published`, `modified`, `description`, `language`, `image`, `site`) are overridable and beat the generic scrape on a collision. When `PULLMD_FRONTMATTER_FIELDS` is set as an allowlist, recipe fields it drops are surfaced in the startup log and in the new `filteredFrontmatterFields` array of `GET /api/recipes/status`.
 - **Site-recipe contributor guide** ([`SITE-RECIPES.md`](./SITE-RECIPES.md)), documenting the recipe engine end to end — matching and merge semantics, the full schema, rendered-DOM handling, JSON-LD-to-frontmatter, and the testing/PR workflow — with a pointer added from the README.
 
+### Fixed
+
+- Recipe `select.remove` now also applies to the HTML sent to the Trafilatura sidecar — previously it was a silent no-op whenever the quality auto-pick chose Trafilatura, so recipe-removed elements still leaked into the output. Selectors are now applied one by one, so an invalid selector is skipped individually instead of risking whole-page extraction failure.
+
 ---
 
 ## [3.4.0] - 2026-07-10

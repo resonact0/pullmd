@@ -366,7 +366,10 @@ would otherwise be removed as chrome.
 
 Frontmatter field extraction (both JSON-LD and selector sources) runs **after**
 `preprocess` actions on the same HTML, so an element removed by a `preprocess`
-action is invisible to selector and JSON-LD sources.
+action is invisible to selector and JSON-LD sources. In particular, don't aim a
+`preprocess` removal at a broad wrapper that happens to contain the
+`<script type="application/ld+json">` block (or an element a frontmatter selector
+reads) — the field silently vanishes from the output with no error.
 
 ### Field-name rules
 
@@ -452,8 +455,16 @@ Two tools, pick by intent:
   "select": { "remove": ["aside.related", "div.newsletter-signup", "[data-widget=\"recommendations\"]"] }
   ```
 
-- **`preprocess` with `remove-element`** — same effect (delete the element), but
-  lives in the ordered `preprocess` pipeline, so use it when the deletion must
+  Selectors are applied one by one; an invalid selector is skipped and never
+  breaks extraction of the rest of the page.
+
+- **`preprocess` with `remove-element`** — same end result in the body (the
+  element is deleted), but at a different point in the pipeline: `preprocess`
+  removals happen before metadata and frontmatter extraction, so the removed
+  element is invisible to frontmatter selector/JSON-LD sources too, whereas
+  `select.remove` runs after frontmatter extraction and only strips the element
+  from what the content extractors see. `remove-element` also lives in the
+  ordered `preprocess` pipeline, so use it when the deletion must
   happen relative to other structural edits (e.g. unwrap a parent first, then
   delete a now-exposed child). For a simple "just delete these", `select.remove`
   is clearer.
@@ -468,6 +479,13 @@ Two tools, pick by intent:
   content (e.g. `aria-hidden="true"`, a `paywall` CSS class) rather than elements
   that *are* noise. You keep the element and its text; you just strip the marker
   that was suppressing it.
+
+**Execution order:** `preprocess` actions run first (on the raw HTML, before
+parsing and metadata extraction), then frontmatter fields are extracted, then
+`select.remove` runs — before both extractors (Readability and Trafilatura
+alike). Practical consequence: a `preprocess` `unwrap` can dissolve a wrapper
+that a `select.remove` selector would otherwise target, and nothing
+`select.remove` does can affect the `preprocess` stage or the frontmatter.
 
 PullMD already removes generic chrome (nav, header, footer, sidebars, cookie
 banners, share buttons, 1×1 tracking pixels, …) on every page. Only add
@@ -567,6 +585,18 @@ recipes. Each demonstrates a different feature:
    shows the YAML block so you can verify your fields.
 5. **Inspect the output** — is the noise gone, the body complete, the frontmatter
    fields present and correct? Iterate: edit → restart → re-convert.
+
+**Run the sidecars while iterating.** `TRAFILATURA_URL` / `PLAYWRIGHT_URL` can
+point at locally running sidecar containers (e.g. the published
+`aeternalabshq/pullmd-trafilatura` and `aeternalabshq/pullmd-playwright`
+images). A missing or unreachable sidecar changes which extractor wins the
+quality auto-pick — and therefore what your recipe appears to do — so test
+against the same sidecar setup production runs with.
+
+**Transient near-empty output?** Bot-protected sites can intermittently serve a
+near-empty rendered shell (frontmatter `quality: 0`, a body that is little more
+than "skip to main content"). A retry with `nocache=1` usually resolves it —
+retry before concluding your recipe is broken.
 
 **Recipe seems to do nothing?** Check how the page was actually extracted: look
 at the `X-Source` response header (or the `source:` field in the frontmatter,
