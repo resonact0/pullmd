@@ -49,5 +49,67 @@
     "preprocess": [
       { "action": "unwrap", "selector": "#text" }
     ]
+  },
+  {
+    "name": "booking-hotel-noise",
+    "host": ["www.booking.com", "booking.com"],
+    "path": "/hotel/**",
+    "preprocess": [
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyBreadcrumbs\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyGalleryUnifiedDesktop\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyShareDesktop\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyWishlistWidgetDesktop\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyHighlightsWishlistWidget\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/GeniusPlusProgramModeWelcomeSheet\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/GeniusPlusSheetsPP\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyGeniusVipVoucherSheet\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/RewardsBannerAndLandSheet\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PromotionalRegionOneDesktop\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PriceMatch/ssr/pp-sidebar\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/GlobalAlerts\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/Badges\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyPageInterlinking\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyBrandInfo\"]" },
+      { "action": "remove-element", "selector": "[data-capla-component-boundary=\"b-property-web-property-page/PropertyPageFAQ\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"web-shell-header-mfe\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"web-shell-footer-mfe\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"searchbox-layout-wide\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"seo-links\"]" },
+      { "action": "remove-element", "selector": "img[src*=\"images-flags\"]" },
+      { "action": "remove-element", "selector": "img[src*=\"static/img/transparent\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"topic-filter-component\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"topic-filters-text-search-input\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"featuredreview-pros-cons-avatar\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"featuredreviewcard-avatar\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"wishlist-button\"]" },
+      { "action": "remove-element", "selector": "[data-testid=\"price-match-trigger\"]" },
+      { "action": "remove-element", "selector": "#property-qna-desktop, [data-testid=\"questions-answers-desktop\"], #questions-answers-desktop" },
+      { "action": "remove-element", "selector": "[data-testid=\"ask-questions-entry-desktop-wrapper\"], #ask-questions-entry-desktop-wrapper" },
+      { "action": "remove-element", "selector": "[id*=\"xm-survey\"], [class*=\"xm-survey\"]" },
+      { "action": "unwrap", "selector": "[data-capla-component-boundary]" },
+      { "action": "unwrap", "selector": "[data-capla-component]" },
+      { "action": "unwrap", "selector": "div.page-section" }
+    ],
+    "fetch": {
+      "render": "force",
+      "wait_for": "#hp_facilities_box",
+      "wait_timeout_ms": 10000
+    }
+  },
+  {
+    "name": "booking-hotel-frontmatter",
+    "host": ["www.booking.com", "booking.com"],
+    "path": "/hotel/**",
+    "frontmatter": {
+      "jsonld": { "type": "Hotel" },
+      "fields": {
+        "description": { "jsonld": "description" },
+        "address": { "jsonld": "address.streetAddress" },
+        "rating": { "jsonld": "aggregateRating.ratingValue" },
+        "rating_best": { "jsonld": "aggregateRating.bestRating" },
+        "review_count": { "jsonld": "aggregateRating.reviewCount" },
+        "price_range": { "jsonld": "priceRange" }
+      }
+    }
   }
 ]
