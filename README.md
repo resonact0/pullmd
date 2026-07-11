@@ -1,4 +1,27 @@
-# PullMD
+# PullMD (anythingToMD fork)
+
+> **This is a fork of [AeternaLabsHQ/pullmd](https://github.com/AeternaLabsHQ/pullmd)**,
+> reused here as the application layer (PWA, REST API, MCP server, auth,
+> share links, history) for a broader anything-to-Markdown pipeline. The
+> conversion/ingestion engines are extended beyond upstream:
+>
+> - **[MarkItDown](https://github.com/microsoft/markitdown)** stays the
+>   **default** document converter — unchanged from upstream.
+> - **[Docling](https://github.com/docling-project/docling)** is added as an
+>   opt-in **high-quality/complex-document** mode (`?engine=docling`):
+>   layout-aware reading order, table structure recognition, and OCR for
+>   scanned pages. See [High-quality documents (Docling)](#high-quality-documents-docling).
+> - **[Whisper](https://github.com/SYSTRAN/faster-whisper) +
+>   [yt-dlp](https://github.com/yt-dlp/yt-dlp)** replace/extend the media
+>   tier for self-hosted, free ingestion of video/audio URLs from any site
+>   yt-dlp supports (not just YouTube), and as the automatic fallback when a
+>   YouTube page has no scrapable caption track. See
+>   [Media ingestion (Whisper + yt-dlp)](#media-ingestion-whisper--yt-dlp).
+>
+> Everything else below (auth, MCP, OAuth, PWA, site recipes, caching) is
+> the upstream application layer, unmodified. Diverges from upstream at the
+> `docling-sidecar/` and `whisper-sidecar/` directories and the
+> `lib/docling-client.js` / `lib/whisper-media-client.js` wiring in `lib/web.js`.
 
 [![Release](https://img.shields.io/github/v/release/AeternaLabsHQ/pullmd?color=ff5722)](https://github.com/AeternaLabsHQ/pullmd/releases)
 [![Docker Pulls](https://img.shields.io/docker/pulls/aeternalabshq/pullmd?color=2496ed&logo=docker&logoColor=white)](https://hub.docker.com/r/aeternalabshq/pullmd)
@@ -475,6 +498,8 @@ for it.
 | `render`        | auto    | `force` → always render via Playwright. `skip` → never render. Bypasses cache.     |
 | `extractor`     | auto    | Force `readability` / `trafilatura` / `playwright` and skip the quality pick. Bypasses cache. |
 | `pdf`           | —       | `ocr` → route PDFs through the [OCR tier](#high-quality-pdf-ocr). Bypasses cache.  |
+| `engine`        | —       | `docling` → route documents through the [high-quality Docling engine](#high-quality-documents-docling) instead of MarkItDown. Bypasses cache. |
+| `media`         | —       | `whisper` → route through [yt-dlp + Whisper](#media-ingestion-whisper--yt-dlp) for any non-YouTube video/audio URL. Bypasses cache. |
 | `yt_timecodes` / `yt_chunk` | see [YouTube](#youtube-transcripts) | Transcript format overrides. Bypass cache when set. |
 | `lang`          | `de`    | Comments-section header language (`de` or `en`).                                   |
 | `query`         | —       | Return only the sections relevant to this text instead of the full page (see [Query-scoped extraction](#query-scoped-extraction)). Empty/whitespace-only is treated as absent — output is unchanged. |
@@ -484,7 +509,7 @@ Both `query` and `max_tokens` are also available on the MCP `read_url` tool.
 
 ### Response headers
 
-- `X-Source` — `reddit` · `cloudflare` · `readability` · `readability-fallback` · `trafilatura` · `playwright` · `markitdown` · `youtube` · `image-caption` · `audio-transcript` · `pdf-ocr`
+- `X-Source` — `reddit` · `cloudflare` · `readability` · `readability-fallback` · `trafilatura` · `playwright` · `markitdown` · `docling` · `youtube` · `whisper-media` · `image-caption` · `audio-transcript` · `pdf-ocr`
 - `X-Quality` — `0.0`–`1.0` extraction confidence
 - `X-Share-Id` — the 8-hex permalink id
 - `X-Transcript-Status` — YouTube only: `ok` · `none` · `blocked` · `error`. `blocked` (YouTube rate-limited the transcript fetch, HTTP 429) and `error` are transient and not cached — retry later; `none` means the video genuinely has no transcript
@@ -569,14 +594,49 @@ When the markitdown sidecar is running (set `MARKITDOWN_URL=http://markitdown:80
 
 If `MARKITDOWN_URL` is unset, document conversion is unavailable: a document URL (`GET /api?url=…`) and `POST /api/file` both return `502`. Regular HTML pages are unaffected, and the PWA hides the document-upload affordance (it reads the `markitdown` flag from `/api/config`).
 
-The default `docker-compose.yml` includes the `markitdown` sidecar with `MARKITDOWN_URL` pre-wired. To opt out, remove the `markitdown` service block and unset the env var.
+The default `docker-compose.yml` includes the `markitdown` sidecar with `MARKITDOWN_URL` pre-wired. To opt out, remove the `markitdown` service block and unset the env var. **MarkItDown is the default converter for every document conversion** — fast, no GPU, no model download — unless you opt into the Docling engine below.
+
+### High-quality documents (Docling)
+
+For documents where MarkItDown's output isn't good enough — scanned PDFs, dense tables, complex multi-column layouts — route the conversion through [Docling](https://github.com/docling-project/docling) instead: layout-aware reading order, table structure recognition, and OCR for scanned pages/images.
+
+Opt in per request with `?engine=docling`, on any of the three document paths:
+
+```
+GET  /api?url=https://example.com/report.pdf&engine=docling
+GET  /api/stream?url=https://example.com/report.pdf&engine=docling
+POST /api/file?engine=docling
+```
+
+On success, `source` becomes `docling`. If the docling sidecar is unreachable, unconfigured (`DOCLING_URL` unset), or the conversion fails, PullMD falls back to the standard MarkItDown path automatically — no error is returned to the caller.
+
+The default `docker-compose.yml` includes a `docling` service (built locally from `docling-sidecar/`, not yet published as a prebuilt image) with `DOCLING_URL` pre-wired. It's a heavy image — several GB, torch + layout/OCR models prefetched at build time — and off by default in the sense that nothing routes through it unless you pass `?engine=docling`. Remove the `docling` service block and unset `DOCLING_URL` if you don't want it at all.
+
+> **Note:** this replaces the "self-host Docling behind `PULLMD_PDF_OCR_BASE_URL`" suggestion from earlier versions of this doc — Docling now has its own first-class `?engine=docling` mode instead of being shoehorned through the OCR-provider config, which assumed a hosted API shape (JSON in, base64 PDF) that doesn't fit a local Docling process well.
+
+### Media ingestion (Whisper + yt-dlp)
+
+Self-hosted, free media ingestion via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (speech-to-text) and [yt-dlp](https://github.com/yt-dlp/yt-dlp) (audio extraction from video/audio URLs). Two ways it's used:
+
+1. **Automatic YouTube fallback** — when `MARKITDOWN_YOUTUBE=true` is set and a YouTube page has no scrapable caption track (`transcript_status: none` or `error`), PullMD downloads the audio via yt-dlp and transcribes it locally instead of returning "no transcript available".
+2. **General media URLs** — opt in per request with `?media=whisper` for any non-YouTube URL yt-dlp supports (Twitter/X, TikTok, Vimeo, SoundCloud, podcast pages, …):
+   ```
+   GET /api?url=https://twitter.com/someone/status/123&media=whisper
+   ```
+   On success, `source` becomes `whisper-media`.
+
+Requires `WHISPER_MEDIA_URL` (pre-wired in the default `docker-compose.yml`, pointing at the local `whisper` service). Falls back to the normal HTML pipeline (or, for YouTube, the plain "no transcript" placeholder) if the sidecar is unreachable, unconfigured, or the media has no yt-dlp-extractable audio.
+
+This also **replaces the STT half of the media tier below**: `PULLMD_STT_BASE_URL`/`PULLMD_STT_API_KEY` default to the whisper sidecar's OpenAI-compatible endpoint in `docker-compose.yml`, so uploaded/linked audio files (`?url=…` or `POST /api/file`) are transcribed locally at no per-call cost. Point those two vars at a paid provider instead if you'd rather not run a local model (see the table below).
+
+See [`whisper-sidecar/README.md`](./whisper-sidecar/README.md) for model-size/timeout/duration-cap configuration.
 
 ### Media tier (image captions + audio transcription)
 
 Image captioning and audio transcription run inside pullmd itself - the markitdown sidecar is **not** required for media features (it is only needed for document conversion). By default pullmd processes images with EXIF metadata only and audio files with track metadata only - no model calls, no external traffic. Set the relevant `PULLMD_VISION_*` or `PULLMD_STT_*` credentials to unlock richer extraction:
 
 - **Images** - a vision-capable model generates a text caption for each image, embedded in the Markdown output. Enabled when `PULLMD_VISION_API_KEY` (or the shared fallback `PULLMD_LLM_API_KEY`) is set.
-- **Audio** - a speech-to-text model transcribes the audio; the transcript replaces the bare metadata block. Enabled when `PULLMD_STT_API_KEY` (or the shared fallback `PULLMD_LLM_API_KEY`) is set.
+- **Audio** - a speech-to-text model transcribes the audio; the transcript replaces the bare metadata block. Enabled when `PULLMD_STT_API_KEY` (or the shared fallback `PULLMD_LLM_API_KEY`) is set. In the default `docker-compose.yml` this is already enabled, pointed at the local [Whisper sidecar](#media-ingestion-whisper--yt-dlp) — no cloud key needed.
 
 Both modalities are independently configurable via `PULLMD_*` env vars on the pullmd service:
 
@@ -626,9 +686,9 @@ On success, `source` becomes `pdf-ocr` and the frontmatter gains a `pdf_pages` f
 
 > **Note:** the OCR provider charges per page. Check your provider's pricing before enabling this on high-volume instances.
 
-**Self-hosted / heavy local engines (advanced)**
+**Self-hosted engines (advanced)**
 
-`PULLMD_PDF_OCR_BASE_URL` can point at any compatible endpoint. Operators who want fully local OCR can run an engine such as [Docling](https://github.com/DS4SD/docling) themselves and set `_BASE_URL` to its address. Be aware that such engines are heavy - a multi-GB container image, and model cold-start times of tens of seconds on first request are typical. This is deliberate: pullmd does not bundle any heavy OCR engine. The reference Mistral OCR path uses a lightweight cloud API call; self-hosting a heavy local engine is an advanced operator choice.
+`PULLMD_PDF_OCR_BASE_URL` can point at any compatible hosted-API-shaped endpoint (JSON in, base64 PDF, `document_url`). For a fully local, first-class alternative, use the dedicated [Docling engine](#high-quality-documents-docling) (`?engine=docling`) instead — it's bundled as its own sidecar rather than shoehorned through this OCR-provider config. The reference Mistral OCR path here is a lightweight cloud API call, useful when you specifically want a hosted OCR provider rather than a local model.
 
 ### Source-specific frontmatter fields
 
@@ -679,8 +739,12 @@ To write or contribute a recipe, see the **[site-recipe contributor guide](./SIT
 - `lib/distrib.js` — Public-URL substitution in `/help` and `/pullmd.zip`.
 - `trafilatura-sidecar/` — Python sidecar (FastAPI) wrapping Trafilatura.
 - `playwright-sidecar/` — Python sidecar (FastAPI + Playwright + Chromium) for JS-rendered pages.
-- `markitdown-sidecar/` — Python sidecar (FastAPI) wrapping MarkItDown for document conversion (PDF, Office, EPUB, …) plus the keyless `/youtube` transcript endpoint.
+- `markitdown-sidecar/` — Python sidecar (FastAPI) wrapping MarkItDown for document conversion (PDF, Office, EPUB, …) plus the keyless `/youtube` transcript endpoint. **The default document converter.**
 - `lib/markitdown-client.js` — HTTP client for the markitdown sidecar (documents + YouTube).
+- `docling-sidecar/` — Python sidecar (FastAPI) wrapping [Docling](https://github.com/docling-project/docling) for the opt-in high-quality/complex-document engine (`?engine=docling`).
+- `lib/docling-client.js` — HTTP client for the docling sidecar; same `{markdown,title}` contract as the markitdown client.
+- `whisper-sidecar/` — Python sidecar (FastAPI) wrapping faster-whisper (OpenAI-compatible `/v1/audio/transcriptions`) and yt-dlp (`/media`) for self-hosted media ingestion.
+- `lib/whisper-media-client.js` — HTTP client for the whisper sidecar's `/media` endpoint; same contract as the YouTube client so the two are interchangeable fallback sources.
 - `lib/youtube.js` — YouTube URL detection and normalization.
 - `lib/llm/` — provider resolver + adapters for image captioning (vision), audio transcription (STT), and PDF OCR against OpenAI-compatible endpoints.
 - `lib/frontmatter.js` — YAML frontmatter builder with the `PULLMD_FRONTMATTER_FIELDS` allowlist.
