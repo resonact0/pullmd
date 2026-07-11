@@ -13,21 +13,23 @@ const saveEnv = () => Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]
 const restoreEnv = (s) => { for (const k of ENV_KEYS) { if (s[k] === undefined) delete process.env[k]; else process.env[k] = s[k]; } };
 
 // Minimal dockerode-shaped fake: a single tracked container ("state"), plus
-// enough of getImage/createVolume/createContainer/pull to satisfy the
-// create-from-scratch path.
+// enough of getImage/getNetwork/createVolume/createContainer/pull to satisfy
+// both the create-from-scratch path and the attach-existing-container path.
 function fakeDocker(state) {
+  state.networks = state.networks || {};
   return {
     getContainer: () => ({
       inspect: async () => {
         if (!state.exists) { const e = new Error('no such container'); e.statusCode = 404; throw e; }
-        return { State: { Running: state.running } };
+        return { State: { Running: state.running }, NetworkSettings: { Networks: { ...state.networks } } };
       },
       start: async () => { state.running = true; },
       stop: async () => { state.running = false; },
     }),
+    getNetwork: (netName) => ({ connect: async () => { state.networks[netName] = {}; } }),
     getImage: () => ({ inspect: async () => ({}) }),
     createVolume: async () => ({}),
-    createContainer: async () => { state.exists = true; state.running = false; },
+    createContainer: async () => { state.exists = true; state.running = false; state.networks = { bridge: {} }; },
     pull: (_image, cb) => cb(null, {}),
     modem: { followProgress: (_stream, cb) => cb(null) },
   };
@@ -77,6 +79,14 @@ describe('ollama-lifecycle', () => {
     await ensureOllamaRunning('http://pullmd-ollama:11434/v1', { model: 'moondream' });
     assert.equal(state.exists, true);
     assert.equal(state.running, true);
+  });
+
+  it('attaches an already-existing container to pullmd\'s own network if not already on it', async () => {
+    const state = { exists: true, running: true, networks: {} }; // e.g. a container the user runs for other purposes
+    _setDockerClientForTesting(fakeDocker(state));
+    globalThis.fetch = tagsFetch();
+    await ensureOllamaRunning('http://ollama:11434/v1', { model: 'moondream' });
+    assert.ok('bridge' in state.networks, 'should have connected the existing container to the resolved network');
   });
 
   it('leaves an already-running container alone forever (never auto-stops it)', async () => {

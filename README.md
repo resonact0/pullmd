@@ -633,16 +633,17 @@ See [`whisper-sidecar/README.md`](./whisper-sidecar/README.md) for model-size/ti
 
 ### Media tier (image captions + audio transcription)
 
-Image captioning and audio transcription run inside pullmd itself - the markitdown sidecar is **not** required for media features (it is only needed for document conversion). By default pullmd processes images with EXIF metadata only and audio files with track metadata only - no model calls, no external traffic. Set the relevant `PULLMD_VISION_*` or `PULLMD_STT_*` credentials to unlock richer extraction:
+Image captioning and audio transcription run inside pullmd itself - the markitdown sidecar is **not** required for media features (it is only needed for document conversion). By default pullmd runs local [Tesseract](https://github.com/tesseract-ocr/tesseract) OCR on every image - no API key, no external traffic - and falls back to audio files' track metadata only. Set the relevant `PULLMD_VISION_*` or `PULLMD_STT_*` credentials to unlock richer extraction:
 
-- **Images** - a vision-capable model generates a text caption for each image, embedded in the Markdown output. Enabled when `PULLMD_VISION_API_KEY` (or the shared fallback `PULLMD_LLM_API_KEY`) is set.
+- **Images** - Tesseract OCR runs first and, when it finds legible text (screenshots, documents, signs), that text is embedded verbatim under an `## Extracted text` heading - no vision model or API key needed. Only when Tesseract finds nothing does pullmd fall back to a vision-capable model for a general caption (enabled when `PULLMD_VISION_API_KEY`, or the shared fallback `PULLMD_LLM_API_KEY`, is set) - useful for photos with no text at all. Set `PULLMD_OCR_TESSERACT=false` to skip Tesseract entirely and always use the vision model instead.
 - **Audio** - a speech-to-text model transcribes the audio; the transcript replaces the bare metadata block. Enabled when `PULLMD_STT_API_KEY` (or the shared fallback `PULLMD_LLM_API_KEY`) is set. In the default `docker-compose.yml` this is already enabled, pointed at the local [Whisper sidecar](#media-ingestion-whisper--yt-dlp) — no cloud key needed.
 
 Both modalities are independently configurable via `PULLMD_*` env vars on the pullmd service:
 
 | Scope | Variables |
 | ----- | --------- |
-| Vision | `PULLMD_VISION_API_KEY`, `PULLMD_VISION_BASE_URL`, `PULLMD_VISION_MODEL` (default `gpt-4o-mini`; `moondream` when self-hosted via Ollama, see below) |
+| OCR (images, tried first) | `PULLMD_OCR_TESSERACT` (default `true`; set to `false` to skip Tesseract and always use the vision model) |
+| Vision (images, fallback) | `PULLMD_VISION_API_KEY`, `PULLMD_VISION_BASE_URL`, `PULLMD_VISION_MODEL` (default `gpt-4o-mini`; `moondream`/`llava` etc. when self-hosted via Ollama, see below) |
 | STT | `PULLMD_STT_API_KEY`, `PULLMD_STT_BASE_URL`, `PULLMD_STT_MODEL` (default `whisper-1`) |
 | Shared fallback | `PULLMD_LLM_API_KEY`, `PULLMD_LLM_BASE_URL` (used when per-modality key is unset) |
 

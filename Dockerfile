@@ -27,7 +27,10 @@ WORKDIR /app
 COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 
-RUN apk add --no-cache su-exec
+# su-exec drops root privileges; tesseract-ocr is the first-pass local text
+# extractor for image uploads (lib/llm/ocr-tesseract.js) — falls back to a
+# vision model only when it finds no legible text.
+RUN apk add --no-cache su-exec tesseract-ocr tesseract-ocr-data-eng
 
 RUN mkdir -p /data && chown -R app:app /app /data
 

@@ -28,5 +28,9 @@ if [ "${1#-}" != "${1}" ] || [ -z "$(command -v "${1}")" ] || { [ -f "${1}" ] &&
   set -- node "$@"
 fi
 
-# Drop to the unprivileged app user and run the command.
-exec su-exec app:app "$@"
+# Drop to the unprivileged app user and run the command. Deliberately omit
+# the ":app" group suffix: su-exec only calls initgroups() (picking up ALL
+# of app's supplementary groups, e.g. the docker-host group added above)
+# when no explicit group is given — "user:group" syntax sets just that one
+# gid via setgroups() and silently drops every other supplementary group.
+exec su-exec app "$@"
