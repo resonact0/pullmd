@@ -11,12 +11,22 @@ services:
       - PLAYWRIGHT_URL=http://playwright:8002/render
       - MARKITDOWN_URL=http://markitdown:8003/convert
       - MARKITDOWN_YOUTUBE=${MARKITDOWN_YOUTUBE:-}
+      # Opt-in high-quality/complex-document engine (?engine=docling) — MarkItDown
+      # above stays the default converter; leave this unset to disable docling.
+      - DOCLING_URL=${DOCLING_URL:-http://docling:8004/convert}
+      # yt-dlp + Whisper media ingestion: fallback when a YouTube page has no
+      # caption track, and the general entry point for non-YouTube video/audio
+      # URLs (?media=whisper).
+      - WHISPER_MEDIA_URL=${WHISPER_MEDIA_URL:-http://whisper:8005/media}
       # Media tier (image captioning, audio transcription) — handled by pullmd, not the sidecar.
       - PULLMD_VISION_API_KEY=${PULLMD_VISION_API_KEY:-}
       - PULLMD_VISION_BASE_URL=${PULLMD_VISION_BASE_URL:-}
       - PULLMD_VISION_MODEL=${PULLMD_VISION_MODEL:-}
-      - PULLMD_STT_API_KEY=${PULLMD_STT_API_KEY:-}
-      - PULLMD_STT_BASE_URL=${PULLMD_STT_BASE_URL:-}
+      # Defaults to the self-hosted whisper sidecar below (any non-empty API key
+      # works — it doesn't check it). Point at a paid provider instead by
+      # overriding both PULLMD_STT_API_KEY and PULLMD_STT_BASE_URL in .env.
+      - PULLMD_STT_API_KEY=${PULLMD_STT_API_KEY:-local}
+      - PULLMD_STT_BASE_URL=${PULLMD_STT_BASE_URL:-http://whisper:8005/v1}
       - PULLMD_STT_MODEL=${PULLMD_STT_MODEL:-}
       - PULLMD_LLM_API_KEY=${PULLMD_LLM_API_KEY:-}
       - PULLMD_LLM_BASE_URL=${PULLMD_LLM_BASE_URL:-}
@@ -54,6 +64,8 @@ services:
       - trafilatura
       - playwright
       - markitdown
+      - docling
+      - whisper
 
   trafilatura:
     image: aeternalabshq/pullmd-trafilatura:latest
@@ -89,6 +101,51 @@ services:
     networks:
       - pullmd-internal
 
+  # Opt-in high-quality/complex-document engine (layout-aware reading order,
+  # table structure, OCR). Not published on Docker Hub yet — built locally.
+  # Heavy image (torch + model weights); remove this block + unset DOCLING_URL
+  # above if you don't need it.
+  docling:
+    build:
+      context: ./docling-sidecar
+    container_name: pullmd-docling
+    restart: unless-stopped
+    mem_limit: ${DOCLING_MEM_LIMIT:-4g}
+    environment:
+      - DOCLING_CONVERT_TIMEOUT=${DOCLING_CONVERT_TIMEOUT:-300}
+      - DOCLING_MEM_LIMIT_MB=${DOCLING_MEM_LIMIT_MB:-0}
+    networks:
+      - pullmd-internal
+
+  # Self-hosted media ingestion: faster-whisper (STT) + yt-dlp (audio download
+  # for any yt-dlp-supported URL). Not published on Docker Hub yet — built
+  # locally. Remove this block, unset WHISPER_MEDIA_URL above, and point
+  # PULLMD_STT_* at a paid provider instead if you don't want a local model.
+  whisper:
+    build:
+      context: ./whisper-sidecar
+    container_name: pullmd-whisper
+    restart: unless-stopped
+    mem_limit: ${WHISPER_MEM_LIMIT:-2g}
+    environment:
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-base}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+      - WHISPER_LANGUAGE=${WHISPER_LANGUAGE:-}
+      - WHISPER_TRANSCRIBE_TIMEOUT=${WHISPER_TRANSCRIBE_TIMEOUT:-600}
+      - WHISPER_MEDIA_FETCH_TIMEOUT=${WHISPER_MEDIA_FETCH_TIMEOUT:-600}
+      - WHISPER_MEDIA_MAX_DURATION_SECONDS=${WHISPER_MEDIA_MAX_DURATION_SECONDS:-5400}
+      - WHISPER_MEDIA_MAX_BYTES=${WHISPER_MEDIA_MAX_BYTES:-314572800}
+    volumes:
+      # Model weights are downloaded from Hugging Face on first use; persist
+      # them here so restarts don't re-download.
+      - whisper-model-cache:/home/app/.cache
+    networks:
+      - pullmd-internal
+
 networks:
   pullmd-internal:
     driver: bridge
+
+volumes:
+  whisper-model-cache:
