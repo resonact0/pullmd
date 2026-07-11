@@ -1025,6 +1025,17 @@ describe('media routing → Node LLM layer', () => {
     assert.equal(r.metadata.audioSeconds, 4.2);
   });
 
+  it('extractFile routes .m4a to the STT adapter even with an unrecognized content-type (browsers send audio/x-m4a)', async () => {
+    const r = await extractFile(Buffer.from('AUDIO'), {
+      filename: 'memo.m4a', contentType: 'audio/x-m4a',
+      transcribeFn: async () => ({ markdown: '### Audio Transcript\n\nHi.', usage: { model: 'whisper-1' }, audioSeconds: 4.2 }),
+      captionFn: async () => { throw new Error('no'); },
+      markitdownClient: async () => { throw new Error('no'); },
+    });
+    assert.equal(r.source, 'audio-transcript');
+    assert.ok(r.markdown.includes('Hi.'));
+  });
+
   it('extractFile falls through to markitdown when the image adapter is unconfigured (returns null)', async () => {
     const r = await extractFile(PNG, {
       filename: 'pic.png', contentType: 'image/png',

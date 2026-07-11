@@ -16,6 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN useradd --create-home --shell /bin/bash app
 
+# Pre-create the model-cache mount point and hand it to app:app. Docker
+# creates a fresh named volume's mount point owned by root regardless of the
+# parent directory's ownership, so without this the non-root app user can't
+# write downloaded model weights into /home/app/.cache at runtime.
+RUN mkdir -p /home/app/.cache && chown -R app:app /home/app/.cache
+
 WORKDIR /app
 
 COPY requirements.txt .
