@@ -297,7 +297,7 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api', gate, async (req, res) => {
-    const { url, comments, comment_depth, comment_limit, format, nocache, frontmatter, lang, render, extractor, yt_timecodes, yt_chunk, pdf, query, max_tokens } = req.query;
+    const { url, comments, comment_depth, comment_limit, format, nocache, frontmatter, lang, render, extractor, yt_timecodes, yt_chunk, pdf, engine, media, query, max_tokens } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
     const reqLang = lang === 'en' ? 'en' : 'de';
     const validExtractor = (extractor === 'readability' || extractor === 'trafilatura' || extractor === 'playwright')
@@ -305,6 +305,8 @@ export function createApp(overrides = {}) {
     const validYtTimecodes = (yt_timecodes === 'links' || yt_timecodes === 'plain' || yt_timecodes === 'none') ? yt_timecodes : undefined;
     const validYtChunk = (yt_chunk !== undefined && /^\d+$/.test(yt_chunk)) ? parseInt(yt_chunk, 10) : undefined;
     const explicitYtParams = validYtTimecodes !== undefined || validYtChunk !== undefined;
+    const validEngine = engine === 'docling' ? engine : undefined;
+    const validMediaEngine = media === 'whisper' ? media : undefined;
     // query-extract: gated feature. `queryActive` decides everything below —
     // an empty/absent query must leave every byte of the response untouched.
     const trimmedQuery = typeof query === 'string' ? query.trim() : '';
@@ -341,7 +343,7 @@ export function createApp(overrides = {}) {
     // values actually take effect (the fresh response then overwrites the row).
     const explicitCommentParams = comment_depth !== undefined || comment_limit !== undefined;
     const explicitRenderParam = render === 'force' || render === 'skip';
-    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitCommentParams && !explicitRenderParam && !validExtractor && !explicitYtParams && pdf !== 'ocr';
+    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitCommentParams && !explicitRenderParam && !validExtractor && !explicitYtParams && pdf !== 'ocr' && !validEngine && !validMediaEngine;
 
     const wantComments = comments !== 'false' && comments !== '0';
     const t0 = Date.now();
@@ -579,6 +581,8 @@ export function createApp(overrides = {}) {
         ytTimecodes: validYtTimecodes,
         ytChunk: validYtChunk,
         pdfOcr: pdf === 'ocr',
+        engine: validEngine,
+        mediaEngine: validMediaEngine,
       });
 
       let shareId = null;
@@ -721,7 +725,7 @@ export function createApp(overrides = {}) {
   // history, no share link), telemetry logs a constant placeholder.
   const MAX_FILE_BYTES = '25mb';
   app.post('/api/file', gate, express.raw({ type: () => true, limit: MAX_FILE_BYTES }), async (req, res) => {
-    const { format, frontmatter, pdf } = req.query;
+    const { format, frontmatter, pdf, engine } = req.query;
     let filename = req.query.filename;
     const filenameHeader = req.headers['x-filename'];
     if (filenameHeader) {
@@ -738,7 +742,7 @@ export function createApp(overrides = {}) {
     const t0 = Date.now();
 
     try {
-      const result = await extractFileFn(req.body, { filename, contentType, pdfOcr: pdf === 'ocr' });
+      const result = await extractFileFn(req.body, { filename, contentType, pdfOcr: pdf === 'ocr', engine: engine === 'docling' ? 'docling' : undefined });
 
       const fm = wantFrontmatter
         ? buildFrontmatter(result.metadata || {}, { source: result.source, shareId: null })
@@ -779,7 +783,7 @@ export function createApp(overrides = {}) {
   });
 
   app.get('/api/stream', gate, async (req, res) => {
-    const { url, comments, comment_depth, comment_limit, frontmatter, lang, nocache, render, extractor, yt_timecodes, yt_chunk, pdf } = req.query;
+    const { url, comments, comment_depth, comment_limit, frontmatter, lang, nocache, render, extractor, yt_timecodes, yt_chunk, pdf, engine, media } = req.query;
     const wantFrontmatter = frontmatter === 'true' || frontmatter === '1';
     const reqLang = lang === 'en' ? 'en' : 'de';
     const validExtractor = (extractor === 'readability' || extractor === 'trafilatura' || extractor === 'playwright')
@@ -787,6 +791,8 @@ export function createApp(overrides = {}) {
     const validYtTimecodes = (yt_timecodes === 'links' || yt_timecodes === 'plain' || yt_timecodes === 'none') ? yt_timecodes : undefined;
     const validYtChunk = (yt_chunk !== undefined && /^\d+$/.test(yt_chunk)) ? parseInt(yt_chunk, 10) : undefined;
     const explicitYtParams = validYtTimecodes !== undefined || validYtChunk !== undefined;
+    const validEngine = engine === 'docling' ? engine : undefined;
+    const validMediaEngine = media === 'whisper' ? media : undefined;
 
     if (!url) {
       return res.status(400).json({ error: 'Missing required parameter: url' });
@@ -810,7 +816,7 @@ export function createApp(overrides = {}) {
     const wantComments = comments !== 'false' && comments !== '0';
     const explicitRenderParam = render === 'force' || render === 'skip';
     const explicitCommentParams = comment_depth !== undefined || comment_limit !== undefined;
-    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitRenderParam && !explicitCommentParams && !validExtractor && !explicitYtParams && pdf !== 'ocr';
+    const useCache = cache && nocache !== 'true' && nocache !== '1' && !explicitRenderParam && !explicitCommentParams && !validExtractor && !explicitYtParams && pdf !== 'ocr' && !validEngine && !validMediaEngine;
     const t0 = Date.now();
 
     try {
@@ -920,6 +926,8 @@ export function createApp(overrides = {}) {
         ytTimecodes: validYtTimecodes,
         ytChunk: validYtChunk,
         pdfOcr: pdf === 'ocr',
+        engine: validEngine,
+        mediaEngine: validMediaEngine,
         emit,
         signal: ac.signal,
       });
@@ -988,6 +996,8 @@ export function createApp(overrides = {}) {
       stt: !!(process.env.PULLMD_STT_API_KEY || process.env.PULLMD_LLM_API_KEY),
       pdfOcr: !!process.env.PULLMD_PDF_OCR_API_KEY,
       markitdownYoutube: !!process.env.MARKITDOWN_YOUTUBE,
+      docling: !!process.env.DOCLING_URL,
+      whisperMedia: !!process.env.WHISPER_MEDIA_URL,
     });
   });
 

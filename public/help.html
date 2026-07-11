@@ -408,10 +408,16 @@ Returns clean Markdown (text/markdown). Optional query params:
   format=text           strip Markdown, return plain text
   nocache=true          bypass the 1h cache and refetch
   lang=de|en            language for the comments section header
+  engine=docling        opt-in high-quality/complex-document conversion
+                         (linked PDFs/Office docs; layout + table + OCR)
+  media=whisper         opt-in yt-dlp + Whisper transcription for
+                         video/audio URLs (also the automatic fallback
+                         when a YouTube page has no caption track)
 
 Response headers worth checking:
   X-Source       reddit | cloudflare | readability | trafilatura |
-                 playwright | markitdown | youtube | pdf-ocr | ...
+                 playwright | markitdown | docling | youtube |
+                 whisper-media | pdf-ocr | ...
   X-Quality      0.0-1.0 extraction confidence
   X-Share-Id     8-hex permalink, openable as /s/&lt;id&gt;
 
