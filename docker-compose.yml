@@ -25,9 +25,31 @@ services:
       # URLs (?media=whisper).
       - WHISPER_MEDIA_URL=${WHISPER_MEDIA_URL:-http://whisper:8005/media}
       # Media tier (image captioning, audio transcription) — handled by pullmd, not the sidecar.
-      - PULLMD_VISION_API_KEY=${PULLMD_VISION_API_KEY:-}
-      - PULLMD_VISION_BASE_URL=${PULLMD_VISION_BASE_URL:-}
-      - PULLMD_VISION_MODEL=${PULLMD_VISION_MODEL:-}
+      # PULLMD_OLLAMA_MANAGED=true switches vision to a locally-run Ollama
+      # container that pullmd itself creates/starts/stops via the Docker
+      # socket (see the bind mount above and README "Media tier"). Leave
+      # false to use a cloud/self-hosted vision endpoint via
+      # PULLMD_VISION_BASE_URL instead, with no Docker socket involved.
+      - PULLMD_VISION_API_KEY=${PULLMD_VISION_API_KEY:-ollama}
+      - PULLMD_VISION_BASE_URL=${PULLMD_VISION_BASE_URL:-http://pullmd-ollama:11434/v1}
+      - PULLMD_VISION_MODEL=${PULLMD_VISION_MODEL:-moondream}
+      - PULLMD_OLLAMA_MANAGED=${PULLMD_OLLAMA_MANAGED:-false}
+      - OLLAMA_CONTAINER_NAME=${OLLAMA_CONTAINER_NAME:-pullmd-ollama}
+      - OLLAMA_IMAGE=${OLLAMA_IMAGE:-ollama/ollama:latest}
+      # Empty = auto-detect pullmd's own Docker network at runtime; set only
+      # if auto-detection picks the wrong network.
+      - OLLAMA_NETWORK=${OLLAMA_NETWORK:-}
+      - OLLAMA_GPU=${OLLAMA_GPU:-true}
+      # Ollama's own in-process model-unload timer (separate from the
+      # container-level idle-stop below).
+      - OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE:-5m}
+      # How long the Ollama container may sit idle before pullmd stops it —
+      # only applies to a container pullmd itself started; a container that
+      # was already running before pullmd touched it is never auto-stopped.
+      - OLLAMA_IDLE_STOP_SECONDS=${OLLAMA_IDLE_STOP_SECONDS:-300}
+      # Generous budget covering container creation, image pull, container
+      # start, health check, AND first-time model pull (moondream ~1.8GB).
+      - OLLAMA_START_TIMEOUT_SECONDS=${OLLAMA_START_TIMEOUT_SECONDS:-600}
       # Defaults to the self-hosted whisper sidecar below (any non-empty API key
       # works — it doesn't check it). Point at a paid provider instead by
       # overriding both PULLMD_STT_API_KEY and PULLMD_STT_BASE_URL in .env.
@@ -64,6 +86,13 @@ services:
       - CACHE_DB=/data/cache.db
     volumes:
       - ./data:/data
+      # Grants pullmd control over a local Ollama container for self-hosted
+      # vision (PULLMD_OLLAMA_MANAGED above; see README "Media tier").
+      # SECURITY TRADEOFF: the Docker socket is root-equivalent access to
+      # the whole host — anything that can reach this socket can escape the
+      # container. Only enable PULLMD_OLLAMA_MANAGED if you accept that;
+      # otherwise remove this bind mount.
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - pullmd-internal
     depends_on:

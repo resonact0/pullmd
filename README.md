@@ -642,13 +642,61 @@ Both modalities are independently configurable via `PULLMD_*` env vars on the pu
 
 | Scope | Variables |
 | ----- | --------- |
-| Vision | `PULLMD_VISION_API_KEY`, `PULLMD_VISION_BASE_URL`, `PULLMD_VISION_MODEL` (default `gpt-4o-mini`) |
+| Vision | `PULLMD_VISION_API_KEY`, `PULLMD_VISION_BASE_URL`, `PULLMD_VISION_MODEL` (default `gpt-4o-mini`; `moondream` when self-hosted via Ollama, see below) |
 | STT | `PULLMD_STT_API_KEY`, `PULLMD_STT_BASE_URL`, `PULLMD_STT_MODEL` (default `whisper-1`) |
 | Shared fallback | `PULLMD_LLM_API_KEY`, `PULLMD_LLM_BASE_URL` (used when per-modality key is unset) |
 
 Per-modality vars override the shared `LLM_*` fallback when set. Any OpenAI-compatible endpoint works - point `*_BASE_URL` at a local server (e.g. Ollama, LM Studio) to keep everything on-host and avoid per-call cloud costs.
 
 > **Note:** cloud endpoints send image and audio content to a third-party API. Use a local model server if data-residency matters.
+
+#### Self-hosted vision via a code-managed Ollama container
+
+Instead of a cloud vision key or a manually-run Ollama instance, PullMD can
+create, start, and stop its own local [Ollama](https://ollama.com) container
+for image captioning — no per-call cost, no image data leaving the host. Set
+on the `pullmd` service:
+
+```
+PULLMD_OLLAMA_MANAGED=true
+PULLMD_VISION_API_KEY=ollama        # any non-empty value; Ollama's OpenAI-compat endpoint doesn't check it
+PULLMD_VISION_BASE_URL=http://pullmd-ollama:11434/v1
+PULLMD_VISION_MODEL=moondream       # small (~1.8GB), decent at reading on-screen text; swap for any Ollama vision model
+```
+
+`docker-compose.yml` already ships these as the defaults once
+`PULLMD_OLLAMA_MANAGED=true` is set. On the first captioning request, PullMD
+creates an `ollama/ollama` container (pulling the image and the model on
+demand — the first request after enabling this can take several minutes
+while `moondream` downloads), attaches it to the same Docker network as
+`pullmd`, and starts it. **Lifecycle is code-managed, not
+`docker-compose`-managed**: there's no `ollama:` service block, and
+`depends_on` won't auto-start it — that's deliberate, so pullmd's own code
+(not Compose) decides when the container runs.
+
+- If pullmd starts (or finds stopped) the container itself, it automatically
+  stops it again after `OLLAMA_IDLE_STOP_SECONDS` (default 300s) of
+  inactivity, to free the GPU.
+- If the container was **already running** before pullmd's code first
+  touched it, pullmd never stops it — so you can also run Ollama manually or
+  for other purposes without pullmd interfering.
+- GPU passthrough (`OLLAMA_GPU=true`, the default) requires the
+  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+  installed on the host; set `OLLAMA_GPU=false` for CPU-only (slower, no
+  extra host setup).
+- Because `pullmd-ollama` isn't Compose-managed, `docker compose down`
+  doesn't stop or remove it. To fully tear it down: `docker rm -f
+  pullmd-ollama && docker volume rm ollama-model-cache`.
+
+> **Note:** enabling `PULLMD_OLLAMA_MANAGED=true` requires bind-mounting the
+> Docker socket (`/var/run/docker.sock`) into the `pullmd` container (already
+> present, opt-in, in `docker-compose.yml`). This grants the `pullmd`
+> process root-equivalent control over the whole Docker host — only enable
+> it if you trust the code running inside that container. If you'd rather
+> not take that tradeoff, run Ollama yourself (`docker run -d ... ollama/ollama`,
+> or a bare-metal install) and just point `PULLMD_VISION_BASE_URL` at it with
+> `PULLMD_OLLAMA_MANAGED` left `false` — PullMD then uses it as a regular
+> OpenAI-compatible vision endpoint without ever touching its lifecycle.
 
 ### YouTube transcripts
 

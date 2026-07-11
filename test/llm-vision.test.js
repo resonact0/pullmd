@@ -41,6 +41,14 @@ describe('captionImage', () => {
     restore(s);
   });
 
+  it('returns null without touching Docker when Ollama-managed but no key is set', async () => {
+    const s = save(); delete process.env.PULLMD_VISION_API_KEY; delete process.env.PULLMD_LLM_API_KEY;
+    process.env.PULLMD_OLLAMA_MANAGED = 'true';
+    assert.equal(await captionImage(PNG, { mimetype: 'image/png', fetch: async () => { throw new Error('should not call'); } }), null);
+    delete process.env.PULLMD_OLLAMA_MANAGED;
+    restore(s);
+  });
+
   it('falls back to image/jpeg data-uri when mimetype is missing', async () => {
     const s = save(); process.env.PULLMD_VISION_API_KEY = 'k'; delete process.env.PULLMD_VISION_BASE_URL; delete process.env.PULLMD_VISION_MODEL; delete process.env.PULLMD_LLM_API_KEY;
     let captured;
