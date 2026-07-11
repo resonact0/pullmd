@@ -1,6 +1,9 @@
 services:
   pullmd:
-    image: aeternalabshq/pullmd:latest
+    # Built from local source — see docker-compose.yml for why.
+    build:
+      context: .
+    image: anythingtomd-pullmd:local
     container_name: pullmd
     restart: unless-stopped
     environment:

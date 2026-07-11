@@ -1,6 +1,12 @@
 services:
   pullmd:
-    image: aeternalabshq/pullmd:latest
+    # Built from local source (this fork's server.js/lib changes — docling/
+    # whisper engine routing — aren't in the published aeternalabshq/pullmd
+    # image). Swap back to `image: aeternalabshq/pullmd:latest` (dropping
+    # `build:`) if you ever want to run vanilla upstream instead.
+    build:
+      context: .
+    image: anythingtomd-pullmd:local
     container_name: pullmd
     restart: unless-stopped
     ports:
