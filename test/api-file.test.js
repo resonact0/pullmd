@@ -123,6 +123,29 @@ describe('POST /api/file - happy paths', () => {
     assert.ok(resFm.body.includes('llm_model:'), 'expected llm_model in frontmatter');
   });
 
+  it('forwards ?engine=docling to extractFile and sets X-Source: docling', async () => {
+    const FAKE_DOCLING = {
+      markdown: '# doc.pdf\n\n| a | b |',
+      title: 'doc.pdf',
+      source: 'docling',
+      metadata: { quality: 0.7 },
+    };
+    let received;
+    const app = createApp({ extractFile: async (buf, opts) => { received = opts; return FAKE_DOCLING; } });
+    const res = await postFile(app, '/api/file?engine=docling', Buffer.from('%PDF-1.4'));
+    assert.equal(res.headers['x-source'], 'docling');
+    assert.equal(received.engine, 'docling');
+  });
+
+  it('does not set engine when ?engine is missing or an unrecognized value', async () => {
+    let received;
+    const app = createApp({ extractFile: async (buf, opts) => { received = opts; return FAKE; } });
+    await postFile(app, '/api/file', Buffer.from('%PDF-1.4'));
+    assert.equal(received.engine, undefined);
+    await postFile(app, '/api/file?engine=bogus', Buffer.from('%PDF-1.4'));
+    assert.equal(received.engine, undefined);
+  });
+
   it('sets X-Source: audio-transcript and emits audio_seconds + llm_model in frontmatter for audio source', async () => {
     const FAKE_AUDIO = {
       markdown: '# clip.mp3\n\n### Audio Transcript\n\nHello.',

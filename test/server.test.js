@@ -1322,6 +1322,34 @@ describe('GET /api/config - markitdownYoutube flag', () => {
   });
 });
 
+describe('GET /api/config - docling and whisperMedia flags', () => {
+  it('reports docling:false and whisperMedia:false when the sidecar URLs are unset', async () => {
+    const prevD = process.env.DOCLING_URL;
+    const prevW = process.env.WHISPER_MEDIA_URL;
+    delete process.env.DOCLING_URL;
+    delete process.env.WHISPER_MEDIA_URL;
+    const res = await request(createApp({}), '/api/config');
+    const body = JSON.parse(res.body);
+    assert.equal(body.docling, false);
+    assert.equal(body.whisperMedia, false);
+    if (prevD !== undefined) process.env.DOCLING_URL = prevD;
+    if (prevW !== undefined) process.env.WHISPER_MEDIA_URL = prevW;
+  });
+
+  it('reports docling:true and whisperMedia:true when the sidecar URLs are set', async () => {
+    const prevD = process.env.DOCLING_URL;
+    const prevW = process.env.WHISPER_MEDIA_URL;
+    process.env.DOCLING_URL = 'http://docling:8004/convert';
+    process.env.WHISPER_MEDIA_URL = 'http://whisper:8005/media';
+    const res = await request(createApp({}), '/api/config');
+    const body = JSON.parse(res.body);
+    assert.equal(body.docling, true);
+    assert.equal(body.whisperMedia, true);
+    if (prevD === undefined) delete process.env.DOCLING_URL; else process.env.DOCLING_URL = prevD;
+    if (prevW === undefined) delete process.env.WHISPER_MEDIA_URL; else process.env.WHISPER_MEDIA_URL = prevW;
+  });
+});
+
 describe('GET /api/config - pdfOcr flag', () => {
   it('reports pdfOcr:true when PULLMD_PDF_OCR_API_KEY is set', async () => {
     const prevOcr = process.env.PULLMD_PDF_OCR_API_KEY;

@@ -1165,3 +1165,186 @@ describe('PDF-OCR routing (opt-in)', () => {
     assert.equal(r.source, 'pdf-ocr');
   });
 });
+
+describe('Docling routing (opt-in high-quality/complex-document engine)', () => {
+  const PDF = Buffer.from('%PDF-1.4 fake');
+  const pdfFetch = (bytes = PDF) => async () => ({
+    ok: true, status: 200,
+    headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'application/pdf' : null) },
+    arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  });
+
+  it('extractFile routes a document to docling when engine=docling (source=docling)', async () => {
+    const r = await extractFile(PDF, {
+      filename: 'doc.pdf', contentType: 'application/pdf', engine: 'docling',
+      doclingClient: async () => ({ markdown: '# Doc\n\n| a | b |\n| - | - |', title: 'Doc' }),
+      markitdownClient: async () => { throw new Error('should not call markitdown'); },
+    });
+    assert.equal(r.source, 'docling');
+    assert.ok(r.markdown.includes('| a | b |'));
+  });
+
+  it('extractFile stays on markitdown when engine is not docling', async () => {
+    const r = await extractFile(PDF, {
+      filename: 'doc.pdf', contentType: 'application/pdf',
+      doclingClient: async () => { throw new Error('should not call docling'); },
+      markitdownClient: async () => ({ markdown: 'plain doc', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+
+  it('extractFile falls back to markitdown when docling returns null (unconfigured)', async () => {
+    const r = await extractFile(PDF, {
+      filename: 'doc.pdf', contentType: 'application/pdf', engine: 'docling',
+      doclingClient: async () => null,
+      markitdownClient: async () => ({ markdown: 'plain doc', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+
+  it('extractFile falls back to markitdown when docling throws', async () => {
+    const r = await extractFile(PDF, {
+      filename: 'doc.pdf', contentType: 'application/pdf', engine: 'docling',
+      doclingClient: async () => { throw new Error('docling 504'); },
+      markitdownClient: async () => ({ markdown: 'plain doc', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+
+  it('extractWeb routes a linked PDF to docling when engine=docling (source=docling)', async () => {
+    const r = await extractWeb('https://example.com/doc.pdf', {
+      fetch: pdfFetch(), engine: 'docling',
+      doclingClient: async () => ({ markdown: '# Web Doc\n\ntable', title: 'Web Doc' }),
+    });
+    assert.equal(r.source, 'docling');
+    assert.ok(r.markdown.includes('table'));
+  });
+
+  it('extractWeb PDF stays on markitdown when engine is not docling', async () => {
+    const r = await extractWeb('https://example.com/doc.pdf', {
+      fetch: pdfFetch(),
+      doclingClient: async () => { throw new Error('should not call docling'); },
+      markitdownClient: async () => ({ markdown: 'plain doc', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+
+  it('extractWeb falls back to markitdown when the docling sidecar is unreachable', async () => {
+    const r = await extractWeb('https://example.com/doc.pdf', {
+      fetch: pdfFetch(), engine: 'docling',
+      doclingClient: async () => null,
+      markitdownClient: async () => ({ markdown: 'plain doc', title: 'Doc' }),
+    });
+    assert.equal(r.source, 'markitdown');
+  });
+});
+
+describe('Whisper media routing (yt-dlp + faster-whisper)', () => {
+  function ytFetch() {
+    return async () => ({
+      ok: true, status: 200,
+      headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null) },
+      arrayBuffer: async () => Buffer.from('<html><head><title>Vid - YouTube</title></head><body>p</body></html>').buffer,
+    });
+  }
+
+  it('falls back to whisper when a YouTube page has no caption track (transcript_status=none)', async () => {
+    const prevYt = process.env.MARKITDOWN_YOUTUBE; process.env.MARKITDOWN_YOUTUBE = 'true';
+    const prevWm = process.env.WHISPER_MEDIA_URL; process.env.WHISPER_MEDIA_URL = 'http://whisper:8005/media';
+    let calledWith;
+    const r = await extractWeb('https://www.youtube.com/watch?v=abc123', {
+      fetch: ytFetch(),
+      youtubeClient: async () => ({ markdown: '## Description\n\nsome desc\n\n## Transcript\n\n_No transcript available._', title: 'V', fields: { channel: 'Chan' }, transcriptStatus: 'none' }),
+      whisperMediaClient: async (url) => { calledWith = url; return { markdown: '## Transcript\n\nspoken words here', title: 'V', fields: {}, transcriptStatus: 'ok' }; },
+    });
+    assert.equal(r.source, 'youtube');
+    assert.equal(r.transcriptStatus, 'ok');
+    assert.ok(r.markdown.includes('some desc'), 'keeps the description');
+    assert.ok(r.markdown.includes('spoken words here'), 'uses the whisper transcript');
+    assert.ok(!r.noStore, 'a successful whisper fallback is cacheable');
+    assert.equal(calledWith, 'https://www.youtube.com/watch?v=abc123');
+    if (prevYt === undefined) delete process.env.MARKITDOWN_YOUTUBE; else process.env.MARKITDOWN_YOUTUBE = prevYt;
+    if (prevWm === undefined) delete process.env.WHISPER_MEDIA_URL; else process.env.WHISPER_MEDIA_URL = prevWm;
+  });
+
+  it('keeps the "no transcript" placeholder when WHISPER_MEDIA_URL is unset', async () => {
+    const prevYt = process.env.MARKITDOWN_YOUTUBE; process.env.MARKITDOWN_YOUTUBE = 'true';
+    const prevWm = process.env.WHISPER_MEDIA_URL; delete process.env.WHISPER_MEDIA_URL;
+    const r = await extractWeb('https://www.youtube.com/watch?v=abc123', {
+      fetch: ytFetch(),
+      youtubeClient: async () => ({ markdown: '## Transcript\n\n_No transcript available._', title: 'V', fields: {}, transcriptStatus: 'none' }),
+      whisperMediaClient: async () => { throw new Error('should not be called'); },
+    });
+    assert.equal(r.transcriptStatus, 'none');
+    assert.ok(r.markdown.includes('_No transcript available._'));
+    if (prevYt === undefined) delete process.env.MARKITDOWN_YOUTUBE; else process.env.MARKITDOWN_YOUTUBE = prevYt;
+    if (prevWm === undefined) delete process.env.WHISPER_MEDIA_URL; else process.env.WHISPER_MEDIA_URL = prevWm;
+  });
+
+  it('keeps the "no transcript" placeholder when the whisper sidecar itself fails', async () => {
+    const prevYt = process.env.MARKITDOWN_YOUTUBE; process.env.MARKITDOWN_YOUTUBE = 'true';
+    const prevWm = process.env.WHISPER_MEDIA_URL; process.env.WHISPER_MEDIA_URL = 'http://whisper:8005/media';
+    const r = await extractWeb('https://www.youtube.com/watch?v=abc123', {
+      fetch: ytFetch(),
+      youtubeClient: async () => ({ markdown: '## Transcript\n\n_No transcript available._', title: 'V', fields: {}, transcriptStatus: 'none' }),
+      whisperMediaClient: async () => null,
+    });
+    assert.equal(r.transcriptStatus, 'none');
+    assert.ok(r.markdown.includes('_No transcript available._'));
+    if (prevYt === undefined) delete process.env.MARKITDOWN_YOUTUBE; else process.env.MARKITDOWN_YOUTUBE = prevYt;
+    if (prevWm === undefined) delete process.env.WHISPER_MEDIA_URL; else process.env.WHISPER_MEDIA_URL = prevWm;
+  });
+
+  it('does not touch a successful YouTube transcript (transcript_status=ok)', async () => {
+    const prevYt = process.env.MARKITDOWN_YOUTUBE; process.env.MARKITDOWN_YOUTUBE = 'true';
+    const prevWm = process.env.WHISPER_MEDIA_URL; process.env.WHISPER_MEDIA_URL = 'http://whisper:8005/media';
+    const r = await extractWeb('https://www.youtube.com/watch?v=abc123', {
+      fetch: ytFetch(),
+      youtubeClient: async () => ({ markdown: '## Transcript\n\nreal captions here', title: 'V', fields: {}, transcriptStatus: 'ok' }),
+      whisperMediaClient: async () => { throw new Error('should not be called'); },
+    });
+    assert.equal(r.transcriptStatus, 'ok');
+    assert.ok(r.markdown.includes('real captions here'));
+    if (prevYt === undefined) delete process.env.MARKITDOWN_YOUTUBE; else process.env.MARKITDOWN_YOUTUBE = prevYt;
+    if (prevWm === undefined) delete process.env.WHISPER_MEDIA_URL; else process.env.WHISPER_MEDIA_URL = prevWm;
+  });
+
+  it('?media=whisper routes a non-YouTube URL through yt-dlp+Whisper (source=whisper-media)', async () => {
+    let calledWith;
+    const r = await extractWeb('https://twitter.com/someone/status/123', {
+      mediaEngine: 'whisper',
+      whisperMediaClient: async (url) => { calledWith = url; return { markdown: '## Transcript\n\ntweet audio text', title: 'A post', fields: { channel: 'someone' }, transcriptStatus: 'ok' }; },
+      fetch: ytFetch(), // extractWeb always fetches the page first (SSRF-guarded probe, reused by other branches); irrelevant to the whisper path itself
+    });
+    assert.equal(r.source, 'whisper-media');
+    assert.ok(r.markdown.includes('tweet audio text'));
+    assert.equal(calledWith, 'https://twitter.com/someone/status/123');
+  });
+
+  it('falls through to the normal HTML pipeline when media=whisper is set but the sidecar is unreachable', async () => {
+    const r = await extractWeb('https://example.com/article', {
+      mediaEngine: 'whisper',
+      whisperMediaClient: async () => null,
+      fetch: async () => ({
+        ok: true, status: 200,
+        headers: { get: (h) => (h.toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null) },
+        arrayBuffer: async () => Buffer.from('<html><head><title>T</title></head><body><article><p>Plenty of real article body text well over the two hundred character minimum so Readability keeps it as the main content of this page for certain, yes indeed it does.</p></article></body></html>').buffer,
+      }),
+    });
+    assert.notEqual(r.source, 'whisper-media');
+  });
+
+  it('does not force whisper for YouTube URLs even with media=whisper (YouTube path handles itself)', async () => {
+    const prevYt = process.env.MARKITDOWN_YOUTUBE; process.env.MARKITDOWN_YOUTUBE = 'true';
+    let genericWhisperCalled = false;
+    const r = await extractWeb('https://www.youtube.com/watch?v=abc123', {
+      mediaEngine: 'whisper',
+      fetch: ytFetch(),
+      youtubeClient: async () => ({ markdown: '## Transcript\n\nreal captions', title: 'V', fields: {}, transcriptStatus: 'ok' }),
+      whisperMediaClient: async () => { genericWhisperCalled = true; return null; },
+    });
+    assert.equal(r.source, 'youtube');
+    assert.equal(genericWhisperCalled, false, 'transcript_status=ok never needs the whisper client');
+    if (prevYt === undefined) delete process.env.MARKITDOWN_YOUTUBE; else process.env.MARKITDOWN_YOUTUBE = prevYt;
+  });
+});
